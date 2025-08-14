@@ -3,6 +3,7 @@
 
 #include <string>
 #include <array>
+#include <memory>
 #include <nlohmann/json.hpp>
 using json = nlohmann::json;
 
@@ -68,7 +69,7 @@ namespace Groth16 {
         typename Engine::G1PointAffine *pointsC;
         typename Engine::G1PointAffine *pointsH;
 
-        FFT<typename Engine::Fr> *fft;
+        std::unique_ptr< FFT<typename Engine::Fr> > fft;
     public:
         Prover(
             Engine &_E, 
@@ -105,12 +106,10 @@ namespace Groth16 {
             pointsC(_pointsC),
             pointsH(_pointsH)
         { 
-            fft = new FFT<typename Engine::Fr>(domainSize*2);
+            fft.reset(new FFT<typename Engine::Fr>(domainSize * 2));
         }
 
-        ~Prover() {
-            delete fft;
-        }
+        ~Prover() {}
 
         std::unique_ptr<Proof<Engine>> prove(typename Engine::FrElement *wtns);
     };

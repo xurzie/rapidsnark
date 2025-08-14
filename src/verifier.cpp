@@ -1,5 +1,6 @@
 #include <string>
 #include <stdexcept>
+#include <memory>
 #include <alt_bn128.hpp>
 #include <nlohmann/json.hpp>
 
@@ -117,11 +118,10 @@ groth16_verify(const char    *proof,
         return VERIFIER_ERROR;
 
     } catch (std::exception *e) {
-
+        std::unique_ptr<std::exception> guard(e);
         if (error_msg) {
-            strncpy(error_msg, e->what(), error_msg_maxsize);
-        }
-        delete e;
+            strncpy(error_msg, guard->what(), error_msg_maxsize);
+    }
         return VERIFIER_ERROR;
 
     } catch (...) {

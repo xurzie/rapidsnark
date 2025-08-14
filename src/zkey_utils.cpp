@@ -1,4 +1,5 @@
 #include <stdexcept>
+#include <memory>
 
 #include "zkey_utils.hpp"
 
@@ -17,8 +18,7 @@ Header::~Header() {
 
 
 std::unique_ptr<Header> loadHeader(BinFileUtils::BinFile *f) {
-
-    std::unique_ptr<Header> h(new Header());
+    auto h = std::unique_ptr<Header>(new Header());
 
     f->startReadSection(1);
     uint32_t protocol = f->readU32LE();

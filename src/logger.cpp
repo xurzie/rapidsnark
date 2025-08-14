@@ -86,11 +86,9 @@ Logger::~Logger()
 
 Logger* Logger::getInstance() throw ()
 {
-   if (m_Instance == 0) 
-   {
-      m_Instance = new Logger();
-   }
-   return m_Instance;
+    static Logger instance;   
+    m_Instance = &instance;   
+    return m_Instance;
 }
 
 void Logger::lock()

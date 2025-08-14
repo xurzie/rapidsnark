@@ -1,4 +1,5 @@
 #include <gmp.h>
+#include <memory>
 #include <string>
 #include <cstring>
 #include <stdexcept>
@@ -266,17 +267,16 @@ groth16_prover_create(
             throw std::invalid_argument("Null zkey buffer");
         }
 
-        Groth16Prover *prover = new Groth16Prover(zkey_buffer, zkey_size);
-
-        *prover_object = prover;
+        std::unique_ptr<Groth16Prover> prover(new Groth16Prover(zkey_buffer, zkey_size));
+        *prover_object = prover.release();
 
     } catch (std::exception& e) {
         CopyError(error_msg, error_msg_maxsize, e);
         return PROVER_ERROR;
 
     } catch (std::exception *e) {
-        CopyError(error_msg, error_msg_maxsize, *e);
-        delete e;
+        std::unique_ptr<std::exception> guard(e);
+        CopyError(error_msg, error_msg_maxsize, *guard);
         return PROVER_ERROR;
 
     } catch (...) {
@@ -380,8 +380,8 @@ groth16_prover_prove(
         return PROVER_ERROR;
 
     } catch (std::exception *e) {
-        CopyError(error_msg, error_msg_maxsize, *e);
-        delete e;
+        std::unique_ptr<std::exception> guard(e);
+        CopyError(error_msg, error_msg_maxsize, *guard);
         return PROVER_ERROR;
 
     } catch (...) {
@@ -396,9 +396,8 @@ void
 groth16_prover_destroy(void *prover_object)
 {
     if (prover_object != NULL) {
-        Groth16Prover *prover = static_cast<Groth16Prover*>(prover_object);
+        std::unique_ptr<Groth16Prover> prover(static_cast<Groth16Prover*>(prover_object));
 
-        delete prover;
     }
 }
 

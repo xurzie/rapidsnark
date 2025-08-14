@@ -1,4 +1,5 @@
 #include "wtns_utils.hpp"
+#include <memory>
 
 namespace WtnsUtils {
 
@@ -11,7 +12,7 @@ Header::~Header() {
 }
 
 std::unique_ptr<Header> loadHeader(BinFileUtils::BinFile *f) {
-    std::unique_ptr<Header> h(new Header());
+    auto h = std::unique_ptr<Header>(new Header());
 
     f->startReadSection(1);
 
