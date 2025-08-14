@@ -63,6 +63,9 @@ test_groth16_public_size(const char *zkey_fname, unsigned long long *public_size
 
 cleanup:
 
+    if (buf != NULL) {
+        free(buf);
+    }
     if (fd != -1)
         if (close(fd) == -1)
             printf("Error: %s\n", "close");
