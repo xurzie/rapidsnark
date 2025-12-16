@@ -6,8 +6,8 @@
 	url = https://github.com/nlohmann/json.git
 [submodule "depends/ffiasm"]
 	path = depends/ffiasm
-	url = https://github.com/iden3/ffiasm
-	branch = master
+	url = https://github.com/xurzie/ffiasm.git
+	branch = em-endomorphism
 [submodule "depends/circom_runtime"]
 	path = depends/circom_runtime
 	url = https://github.com/iden3/circom_runtime.git
