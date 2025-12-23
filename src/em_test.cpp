@@ -1,4 +1,4 @@
-// src/glv_bn254_test.cpp
+// src/em_test.cpp
 #include <gtest/gtest.h>
 #include <array>
 #include <cstdint>
@@ -6,10 +6,10 @@
 #include <random>
 #include <gmp.h>
 #include "alt_bn128.hpp"
-#include "glv_bn254_nogmp.hpp"
+#include "em.hpp"
 
 // ---------------- helpers ----------------
-static inline void mpz_from_limbs_le(mpz_t out, const mp_limb_t* limbs, size_t n)
+static inline void mpz_from_limbs(mpz_t out, const mp_limb_t* limbs, size_t n)
 {
     mpz_import(
         out,
@@ -22,7 +22,7 @@ static inline void mpz_from_limbs_le(mpz_t out, const mp_limb_t* limbs, size_t n
     );
 }
 
-static inline void mpz_from_bytes_le(mpz_t out, const uint8_t *bytes, size_t len)
+static inline void mpz_from_bytes(mpz_t out, const uint8_t *bytes, size_t len)
 {
     mpz_import(
         out,
@@ -35,7 +35,7 @@ static inline void mpz_from_bytes_le(mpz_t out, const uint8_t *bytes, size_t len
     );
 }
 
-static inline void mpz_to_bytes32_le(uint8_t out[32], const mpz_t in)
+static inline void mpz_to_bytes32(uint8_t out[32], const mpz_t in)
 {
     std::memset(out, 0, 32);
 
@@ -77,29 +77,29 @@ static inline bool g1_eq(
     return E.g1.eq(a, b);
 }
 
-static inline AltBn128::Engine::G1::Point g1_mul_le(
+static inline AltBn128::Engine::G1::Point g1_mul_scalar(
     AltBn128::Engine& E,
     AltBn128::Engine::G1::PointAffine base,
-    const uint8_t* s_le,
+    const uint8_t* s_bytes,
     uint64_t s_len)
 {
     AltBn128::Engine::G1::Point r;
-    E.g1.mulByScalar(r, base, (uint8_t*)s_le, s_len);
+    E.g1.mulByScalar(r, base, (uint8_t*)s_bytes, s_len);
     return r;
 }
 
 // Calculate lambda from (a1,b1) using the formula: a1 + b1*lambda ≡ 0 (mod N)
 // We only have abs(b1), so try both signs and choose the one
 // that actually matches the endomorphism on the generator
-static inline void compute_lambda_le32(uint8_t lambda_le[32])
+static inline void compute_lambda_32(uint8_t lambda_bytes[32])
 {
-    using namespace glv_bn254;
+    using namespace em;
 
     mpz_t N, absb1, inv, a1, lam_pos, lam_neg;
     mpz_inits(N, absb1, inv, a1, lam_pos, lam_neg, nullptr);
 
-    mpz_from_limbs_le(N, FR_N, N64);
-    mpz_from_limbs_le(absb1, ABS_B1, 2);
+    mpz_from_limbs(N, FR_N, N64);
+    mpz_from_limbs(absb1, ABS_B1, 2);
     mpz_set_ui(a1, (unsigned long)A1);
 
     // inv = abs(b1)^(-1) mod N
@@ -118,17 +118,17 @@ static inline void compute_lambda_le32(uint8_t lambda_le[32])
 
     AltBn128::Engine::G1::PointAffine G = E.g1.oneAffine();
     AltBn128::Engine::G1::PointAffine phiG = G;
-    glv_bn254::apply_phi_inplace_g1(phiG);
+    em::phiP(phiG);
 
     // [lam_pos]G
-    uint8_t lam_pos_le[32];
-    mpz_to_bytes32_le(lam_pos_le, lam_pos);
-    auto lamPosG = g1_mul_le(E, G, lam_pos_le, 32);
+    uint8_t lam_pos_bytes[32];
+    mpz_to_bytes32(lam_pos_bytes, lam_pos);
+    auto lamPosG = g1_mul_scalar(E, G, lam_pos_bytes, 32);
 
     // [lam_neg]G
-    uint8_t lam_neg_le[32];
-    mpz_to_bytes32_le(lam_neg_le, lam_neg);
-    auto lamNegG = g1_mul_le(E, G, lam_neg_le, 32);
+    uint8_t lam_neg_bytes[32];
+    mpz_to_bytes32(lam_neg_bytes, lam_neg);
+    auto lamNegG = g1_mul_scalar(E, G, lam_neg_bytes, 32);
 
     // affine
     AltBn128::Engine::G1::PointAffine a1_aff, a2_aff;
@@ -141,9 +141,9 @@ static inline void compute_lambda_le32(uint8_t lambda_le[32])
     ASSERT_TRUE(ok_pos || ok_neg) << "Neither lambda candidate matches phi(G).";
 
     if (ok_pos) {
-        std::memcpy(lambda_le, lam_pos_le, 32);
+        std::memcpy(lambda_bytes, lam_pos_bytes, 32);
     } else {
-        std::memcpy(lambda_le, lam_neg_le, 32);
+        std::memcpy(lambda_bytes, lam_neg_bytes, 32);
     }
 
     mpz_clears(N, absb1, inv, a1, lam_pos, lam_neg, nullptr);
@@ -151,19 +151,19 @@ static inline void compute_lambda_le32(uint8_t lambda_le[32])
 
 // ---------------- tests ----------------
 
-TEST(GlvBn254, PhiMatchesLambdaOnGenerator)
+TEST(em, PhiMatchesLambdaOnGenerator)
 {
     AltBn128::Engine E;
 
     AltBn128::Engine::G1::PointAffine G = E.g1.oneAffine();
 
     AltBn128::Engine::G1::PointAffine phiG = G;
-    glv_bn254::apply_phi_inplace_g1(phiG);
+    em::phiP(phiG);
 
-    uint8_t lambda_le[32];
-    compute_lambda_le32(lambda_le);
+    uint8_t lambda_bytes[32];
+    compute_lambda_32(lambda_bytes);
 
-    auto lamG = g1_mul_le(E, G, lambda_le, 32);
+    auto lamG = g1_mul_scalar(E, G, lambda_bytes, 32);
 
     AltBn128::Engine::G1::PointAffine lamG_aff;
     E.g1.copy(lamG_aff, lamG);
@@ -171,26 +171,26 @@ TEST(GlvBn254, PhiMatchesLambdaOnGenerator)
     EXPECT_TRUE(g1_eq_affine(E, lamG_aff, phiG));
 }
 
-static inline void check_decomp_reconstruct(AltBn128::Engine& E, const uint8_t k_le[32])
+static inline void check_decomp_reconstruct(AltBn128::Engine& E, const uint8_t k_bytes[32])
 {
     AltBn128::Engine::G1::PointAffine G = E.g1.oneAffine();
 
     // kG
-    auto kG = g1_mul_le(E, G, k_le, 32);
+    auto kG = g1_mul_scalar(E, G, k_bytes, 32);
 
     // decompose(k) -> (k1,k2,signs)
-    auto d = glv_bn254::decompose_fr_le_32(k_le);
+    auto d = em::decompose(k_bytes);
 
     // phi(G)
     AltBn128::Engine::G1::PointAffine phiG = G;
-    glv_bn254::apply_phi_inplace_g1(phiG);
+    em::phiP(phiG);
 
     // p1 = (+/-)k1 * G
-    auto p1 = g1_mul_le(E, G, d.k1, 16);
+    auto p1 = g1_mul_scalar(E, G, d.k1, 16);
     if (d.neg1) E.g1.neg(p1, p1);
 
     // p2 = (+/-)k2 * phi(G)
-    auto p2 = g1_mul_le(E, phiG, d.k2, 16);
+    auto p2 = g1_mul_scalar(E, phiG, d.k2, 16);
     if (d.neg2) E.g1.neg(p2, p2);
 
     // sum = p1 + p2
@@ -200,7 +200,7 @@ static inline void check_decomp_reconstruct(AltBn128::Engine& E, const uint8_t k
     EXPECT_TRUE(g1_eq(E, sum, kG));
 }
 
-TEST(GlvBn254, DecomposeReconstruct_FixedScalars)
+TEST(em, DecomposeReconstruct_FixedScalars)
 {
     AltBn128::Engine E;
 
@@ -238,7 +238,7 @@ TEST(GlvBn254, DecomposeReconstruct_FixedScalars)
     }
 }
 
-TEST(GlvBn254, DecomposeReconstruct_RandomDeterministic)
+TEST(em, DecomposeReconstruct_RandomDeterministic)
 {
     AltBn128::Engine E;
 
@@ -253,20 +253,20 @@ TEST(GlvBn254, DecomposeReconstruct_RandomDeterministic)
     }
 }
 
-TEST(GlvBn254, LambdaMatchesReferenceFromPython)
+TEST(em, LambdaMatchesReferenceFromPython)
 {
-    using namespace glv_bn254;
+    using namespace em;
 
     mpz_t N;
     mpz_init(N);
-    mpz_from_limbs_le(N, FR_N, N64);
+    mpz_from_limbs(N, FR_N, N64);
 
-    uint8_t lambda_le[32];
-    compute_lambda_le32(lambda_le);
+    uint8_t lambda_bytes[32];
+    compute_lambda_32(lambda_bytes);
 
     mpz_t lambda_cpp;
     mpz_init(lambda_cpp);
-    mpz_from_bytes_le(lambda_cpp, lambda_le, 32);
+    mpz_from_bytes(lambda_cpp, lambda_bytes, 32);
     mpz_mod(lambda_cpp, lambda_cpp, N);
 
     // lamb = 4407920970296243842393367215006156084916469457145843978461
@@ -286,31 +286,31 @@ TEST(GlvBn254, LambdaMatchesReferenceFromPython)
 
 static void check_lattice_example(const char* name, const char* k_dec_str)
 {
-    using namespace glv_bn254;
+    using namespace em;
 
     mpz_t N, lambda_mpz, k;
     mpz_inits(N, lambda_mpz, k, nullptr);
 
-    mpz_from_limbs_le(N, FR_N, N64);
+    mpz_from_limbs(N, FR_N, N64);
 
-    uint8_t lambda_le[32];
-    compute_lambda_le32(lambda_le);
-    mpz_from_bytes_le(lambda_mpz, lambda_le, 32);
+    uint8_t lambda_bytes[32];
+    compute_lambda_32(lambda_bytes);
+    mpz_from_bytes(lambda_mpz, lambda_bytes, 32);
     mpz_mod(lambda_mpz, lambda_mpz, N);
 
     ASSERT_EQ(mpz_set_str(k, k_dec_str, 10), 0) << "Bad decimal string for k";
     mpz_mod(k, k, N);
 
-    uint8_t k_le[32];
-    mpz_to_bytes32_le(k_le, k);
+    uint8_t k_bytes[32];
+    mpz_to_bytes32(k_bytes, k);
 
-    auto d = glv_bn254::decompose_fr_le_32(k_le);
+    auto d = em::decompose(k_bytes);
 
     mpz_t k1, k2;
     mpz_inits(k1, k2, nullptr);
 
-    mpz_from_bytes_le(k1, d.k1, 16);
-    mpz_from_bytes_le(k2, d.k2, 16);
+    mpz_from_bytes(k1, d.k1, 16);
+    mpz_from_bytes(k2, d.k2, 16);
 
     if (d.neg1) mpz_neg(k1, k1);
     if (d.neg2) mpz_neg(k2, k2);
@@ -333,7 +333,7 @@ static void check_lattice_example(const char* name, const char* k_dec_str)
     mpz_clears(N, lambda_mpz, k, k1, k2, lhs, nullptr);
 }
 
-TEST(GlvBn254, LatticeExamples_FromPythonScript)
+TEST(em, LatticeExamples_FromPythonScript)
 {
     // Example 1
     check_lattice_example(
@@ -354,7 +354,7 @@ TEST(GlvBn254, LatticeExamples_FromPythonScript)
     );
 }
 
-TEST(GlvBn254, PhiMatchesLambdaOn2G)
+TEST(em, PhiMatchesLambdaOn2G)
 {
     AltBn128::Engine E;
 
@@ -368,14 +368,14 @@ TEST(GlvBn254, PhiMatchesLambdaOn2G)
 
     // phi(P2)
     AltBn128::Engine::G1::PointAffine phiP2 = P2_aff;
-    glv_bn254::apply_phi_inplace_g1(phiP2);
+    em::phiP(phiP2);
 
     // lambda
-    uint8_t lambda_le[32];
-    compute_lambda_le32(lambda_le);
+    uint8_t lambda_bytes[32];
+    compute_lambda_32(lambda_bytes);
 
     // [lambda]P2
-    auto lamP2 = g1_mul_le(E, P2_aff, lambda_le, 32);
+    auto lamP2 = g1_mul_scalar(E, P2_aff, lambda_bytes, 32);
     AltBn128::Engine::G1::PointAffine lamP2_aff;
     E.g1.copy(lamP2_aff, lamP2);
 

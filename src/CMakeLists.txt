@@ -165,17 +165,17 @@ add_executable(test_prover test_prover.cpp)
 
 # GLV BN254 tests
 if(BUILD_TESTS)
-    add_executable(test_glv_bn254 glv_bn254_test.cpp)
+    add_executable(em_test em_test.cpp)
 
-    target_link_libraries(test_glv_bn254 PRIVATE rapidsnarkStaticFrFq)
+    target_link_libraries(em_test PRIVATE rapidsnarkStaticFrFq)
 
-    target_include_directories(test_glv_bn254 PRIVATE /opt/homebrew/include)
-    target_link_libraries(test_glv_bn254 PRIVATE
+    target_include_directories(em_test PRIVATE /opt/homebrew/include)
+    target_link_libraries(em_test PRIVATE
             /opt/homebrew/lib/libgtest_main.a
             /opt/homebrew/lib/libgtest.a
     )
 
-    add_test(NAME test_glv_bn254 COMMAND test_glv_bn254)
+    add_test(NAME em_test COMMAND em_test)
 
-    install(TARGETS test_glv_bn254 RUNTIME DESTINATION bin)
+    install(TARGETS em_test RUNTIME DESTINATION bin)
 endif()
