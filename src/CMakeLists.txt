@@ -1,7 +1,3 @@
-link_libraries(${GMP_LIB})
-
-add_definitions(${GMP_DEFINIONS})
-
 if(USE_ASM)
     if(ARCH MATCHES "arm64")
             add_definitions(-DUSE_ASM -DARCH_ARM64)
@@ -51,7 +47,6 @@ endif()
 add_library(fr STATIC ${FR_SOURCES})
 set_target_properties(fr PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-link_libraries(fr)
 
 set(FQ_SOURCES
     ../build/fq.hpp
@@ -71,7 +66,6 @@ endif()
 add_library(fq STATIC ${FQ_SOURCES})
 set_target_properties(fq PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-link_libraries(fq)
 
 
 if(OpenMP_CXX_FOUND)
@@ -111,6 +105,11 @@ include_directories(
     ../depends/ffiasm/c
     ../depends/json/single_include)
 
+add_library(u256 STATIC
+        ../build/u256.cpp
+)
+set_target_properties(u256 PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 add_library(rapidsnarkStatic STATIC ${LIB_SOURCES})
 set_target_properties(rapidsnarkStatic PROPERTIES OUTPUT_NAME rapidsnark)
 
@@ -119,12 +118,13 @@ set_target_properties(rapidsnarkStaticFrFq PROPERTIES POSITION_INDEPENDENT_CODE 
 set_target_properties(rapidsnarkStaticFrFq PROPERTIES OUTPUT_NAME rapidsnark-fr-fq)
 
 add_executable(prover main_prover.cpp)
-target_link_libraries(prover rapidsnarkStatic)
+target_link_libraries(prover rapidsnarkStatic fr fq u256)
 
 add_executable(verifier main_verifier.cpp)
-target_link_libraries(verifier rapidsnarkStatic)
+target_link_libraries(verifier rapidsnarkStatic fr fq u256)
 
 add_library(rapidsnark SHARED ${LIB_SOURCES})
+target_link_libraries(rapidsnark fr fq u256)
 
 if((USE_LOGGER OR NOT USE_OPENMP) AND NOT TARGET_PLATFORM MATCHES "android")
     target_link_libraries(prover pthread)
@@ -140,7 +140,7 @@ option(BUILD_TESTS "Build the tests" ON)
 if(BUILD_TESTS)
     enable_testing()
     add_executable(test_public_size test_public_size.c)
-    target_link_libraries(test_public_size rapidsnarkStaticFrFq pthread)
+    target_link_libraries(test_public_size rapidsnarkStaticFrFq u256 pthread)
     add_test(NAME test_public_size COMMAND test_public_size circuit_final.zkey 86
             WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/testdata)
 endif()
@@ -162,3 +162,4 @@ endif()
 
 
 add_executable(test_prover test_prover.cpp)
+target_link_libraries(test_prover fq fr u256)
