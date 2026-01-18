@@ -4,6 +4,7 @@
 #include <string>
 #include <cstdint>
 #include <cstring>
+#include <climits>
 #include "fr.hpp"
 #include "fq.hpp"
 
