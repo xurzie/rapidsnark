@@ -15,25 +15,25 @@ static uint64_t Fr_rawq[] = {
 static constexpr uint64_t Fr_np   = 0xc2e1f593efffffffULL;
 static constexpr uint64_t lboMask = 0x3fffffffffffffffULL;
 
-static const U256 Fr_q_u256 = {{
+static const U256 Fr_qU256 = {{
     0x43e1f593f0000001ULL,
     0x2833e84879b97091ULL,
     0xb85045b68181585dULL,
     0x30644e72e131a029ULL
 }};
 
-static inline void load_u256(U256* x, const FrRawElement a) {
-    x->limb[0] = a[0];
-    x->limb[1] = a[1];
-    x->limb[2] = a[2];
-    x->limb[3] = a[3];
+static inline void load_u256(U256* out, const FrRawElement in) {
+    out->limb[0] = in[0];
+    out->limb[1] = in[1];
+    out->limb[2] = in[2];
+    out->limb[3] = in[3];
 }
 
-static inline void store_u256(FrRawElement r, const U256* x) {
-    r[0] = x->limb[0];
-    r[1] = x->limb[1];
-    r[2] = x->limb[2];
-    r[3] = x->limb[3];
+static inline void store_u256(FrRawElement out, const U256* a) {
+    out[0] = a->limb[0];
+    out[1] = a->limb[1];
+    out[2] = a->limb[2];
+    out[3] = a->limb[3];
 }
 
 void Fr_rawAdd(FrRawElement pRawResult, const FrRawElement pRawA, const FrRawElement pRawB)
@@ -43,8 +43,8 @@ void Fr_rawAdd(FrRawElement pRawResult, const FrRawElement pRawA, const FrRawEle
     load_u256(&b, pRawB);
 
     uint64_t carry = u256_add(&r, &a, &b);
-    if (carry || u256_cmp(&r, &Fr_q_u256) >= 0) {
-        (void)u256_sub(&r, &r, &Fr_q_u256);
+    if (carry || u256_cmp(&r, &Fr_qU256) >= 0) {
+        (void)u256_sub(&r, &r, &Fr_qU256);
     }
     store_u256(pRawResult, &r);
 }
@@ -55,8 +55,8 @@ void Fr_rawAddLS(FrRawElement pRawResult, FrRawElement pRawA, uint64_t rawB)
     load_u256(&a, pRawA);
 
     uint64_t carry = u256_add_ui(&r, &a, rawB);
-    if (carry || u256_cmp(&r, &Fr_q_u256) >= 0) {
-        (void)u256_sub(&r, &r, &Fr_q_u256);
+    if (carry || u256_cmp(&r, &Fr_qU256) >= 0) {
+        (void)u256_sub(&r, &r, &Fr_qU256);
     }
     store_u256(pRawResult, &r);
 }
@@ -69,7 +69,7 @@ void Fr_rawSub(FrRawElement pRawResult, const FrRawElement pRawA, const FrRawEle
 
     uint64_t borrow = u256_sub(&r, &a, &b);
     if (borrow) {
-        (void)u256_add(&r, &r, &Fr_q_u256);
+        (void)u256_add(&r, &r, &Fr_qU256);
     }
     store_u256(pRawResult, &r);
 }
@@ -91,7 +91,7 @@ void Fr_rawSubSL(FrRawElement pRawResult, uint64_t rawA, FrRawElement pRawB)
 
     uint64_t borrow = u256_sub(&r, &a, &b);
     if (borrow) {
-        (void)u256_add(&r, &r, &Fr_q_u256);
+        (void)u256_add(&r, &r, &Fr_qU256);
     }
     store_u256(pRawResult, &r);
 }
@@ -103,7 +103,7 @@ void Fr_rawSubLS(FrRawElement pRawResult, FrRawElement pRawA, uint64_t rawB)
 
     uint64_t borrow = u256_sub_ui(&r, &a, rawB);
     if (borrow) {
-        (void)u256_add(&r, &r, &Fr_q_u256);
+        (void)u256_add(&r, &r, &Fr_qU256);
     }
     store_u256(pRawResult, &r);
 }
@@ -114,7 +114,7 @@ void Fr_rawNeg(FrRawElement pRawResult, const FrRawElement pRawA)
     load_u256(&a, pRawA);
 
     if (!u256_is_zero(&a)) {
-        (void)u256_sub(&r, &Fr_q_u256, &a);
+        (void)u256_sub(&r, &Fr_qU256, &a);
         store_u256(pRawResult, &r);
     } else {
         pRawResult[0] = pRawResult[1] = pRawResult[2] = pRawResult[3] = 0;
@@ -126,16 +126,16 @@ void Fr_rawNegLS(FrRawElement pRawResult, FrRawElement pRawA, uint64_t rawB)
     U256 a, t, r;
     load_u256(&a, pRawA);
 
-    (void)u256_sub_ui(&t, &Fr_q_u256, rawB);
+    (void)u256_sub_ui(&t, &Fr_qU256, rawB);
 
     if (u256_cmp(&t, &a) >= 0) {
         (void)u256_sub(&r, &t, &a);
     } else {
         U256 tt;
-        (void)u256_add(&tt, &t, &Fr_q_u256);
+        (void)u256_add(&tt, &t, &Fr_qU256);
         (void)u256_sub(&r, &tt, &a);
-        if (u256_cmp(&r, &Fr_q_u256) >= 0) {
-            (void)u256_sub(&r, &r, &Fr_q_u256);
+        if (u256_cmp(&r, &Fr_qU256) >= 0) {
+            (void)u256_sub(&r, &r, &Fr_qU256);
         }
     }
 
@@ -205,7 +205,7 @@ void Fr_rawCopyS2L(FrRawElement pRawResult, int64_t val)
         r.limb[1] = ~0ULL;
         r.limb[2] = ~0ULL;
         r.limb[3] = ~0ULL;
-        (void)u256_add(&r, &r, &Fr_q_u256);
+        (void)u256_add(&r, &r, &Fr_qU256);
     }
 
     store_u256(pRawResult, &r);
@@ -219,8 +219,8 @@ void Fr_rawAnd(FrRawElement pRawResult, FrRawElement pRawA, FrRawElement pRawB)
     r.limb[2] = pRawA[2] & pRawB[2];
     r.limb[3] = (pRawA[3] & pRawB[3]) & lboMask;
 
-    if (u256_cmp(&r, &Fr_q_u256) >= 0) {
-        (void)u256_sub(&r, &r, &Fr_q_u256);
+    if (u256_cmp(&r, &Fr_qU256) >= 0) {
+        (void)u256_sub(&r, &r, &Fr_qU256);
     }
     store_u256(pRawResult, &r);
 }
@@ -233,8 +233,8 @@ void Fr_rawOr(FrRawElement pRawResult, FrRawElement pRawA, FrRawElement pRawB)
     r.limb[2] = pRawA[2] | pRawB[2];
     r.limb[3] = (pRawA[3] | pRawB[3]) & lboMask;
 
-    if (u256_cmp(&r, &Fr_q_u256) >= 0) {
-        (void)u256_sub(&r, &r, &Fr_q_u256);
+    if (u256_cmp(&r, &Fr_qU256) >= 0) {
+        (void)u256_sub(&r, &r, &Fr_qU256);
     }
     store_u256(pRawResult, &r);
 }
@@ -247,8 +247,8 @@ void Fr_rawXor(FrRawElement pRawResult, FrRawElement pRawA, FrRawElement pRawB)
     r.limb[2] = pRawA[2] ^ pRawB[2];
     r.limb[3] = (pRawA[3] ^ pRawB[3]) & lboMask;
 
-    if (u256_cmp(&r, &Fr_q_u256) >= 0) {
-        (void)u256_sub(&r, &r, &Fr_q_u256);
+    if (u256_cmp(&r, &Fr_qU256) >= 0) {
+        (void)u256_sub(&r, &r, &Fr_qU256);
     }
     store_u256(pRawResult, &r);
 }
@@ -266,8 +266,8 @@ void Fr_rawShl(FrRawElement r, FrRawElement a, uint64_t b)
     u256_shl_2exp(&R, &A, (uint32_t)b);
     R.limb[3] &= lboMask;
 
-    if (u256_cmp(&R, &Fr_q_u256) >= 0) {
-        (void)u256_sub(&R, &R, &Fr_q_u256);
+    if (u256_cmp(&R, &Fr_qU256) >= 0) {
+        (void)u256_sub(&R, &R, &Fr_qU256);
     }
     store_u256(r, &R);
 }
@@ -294,8 +294,8 @@ void Fr_rawNot(FrRawElement pRawResult, FrRawElement pRawA)
     r.limb[2] = ~pRawA[2];
     r.limb[3] = (~pRawA[3]) & lboMask;
 
-    if (u256_cmp(&r, &Fr_q_u256) >= 0) {
-        (void)u256_sub(&r, &r, &Fr_q_u256);
+    if (u256_cmp(&r, &Fr_qU256) >= 0) {
+        (void)u256_sub(&r, &r, &Fr_qU256);
     }
     store_u256(pRawResult, &r);
 }

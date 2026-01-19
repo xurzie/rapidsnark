@@ -2,6 +2,7 @@
 #define __FQ_H
 
 #include "fq_element.hpp"
+#include "u256.hpp"
 #include <cstdint>
 #include <string>
 
@@ -199,6 +200,9 @@ void Fq_mod(PFqElement r, PFqElement a, PFqElement b);
 void Fq_inv(PFqElement r, PFqElement a);
 void Fq_div(PFqElement r, PFqElement a, PFqElement b);
 void Fq_pow(PFqElement r, PFqElement a, PFqElement b);
+void Fq_getModulusU256(U256* out);
+void Fq_toU256(U256* out, PFqElement a);
+void Fq_fromU256(PFqElement out, const U256* v);
 
 class RawFq {
 

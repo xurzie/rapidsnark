@@ -13,14 +13,14 @@ static bool Fq_init() {
     return true;
 }
 
-static inline void fq_get_modulus(U256* q) {
+void Fq_getModulusU256(U256* q) {
     q->limb[0] = (uint64_t)Fq_q.longVal[0];
     q->limb[1] = (uint64_t)Fq_q.longVal[1];
     q->limb[2] = (uint64_t)Fq_q.longVal[2];
     q->limb[3] = (uint64_t)Fq_q.longVal[3];
 }
 
-static inline void fq_element_from_u256(PFqElement pE, const U256* v) {
+ void Fq_fromU256(PFqElement pE, const U256* v) {
     if (u256_fits_sint(v)) {
         pE->type = Fq_SHORT;
         pE->shortVal = (int32_t)v->limb[0];
@@ -33,12 +33,12 @@ static inline void fq_element_from_u256(PFqElement pE, const U256* v) {
     pE->longVal[3] = v->limb[3];
 }
 
-static inline void fq_element_to_u256(U256* out, PFqElement pE) {
+void Fq_toU256(U256* out, PFqElement pE) {
     FqElement tmp;
     Fq_toNormal(&tmp, pE);
 
     if (!(tmp.type & Fq_LONG)) {
-        U256 mod; fq_get_modulus(&mod);
+        U256 mod; Fq_getModulusU256(&mod);
         u256_set_sint_mod(out, (int64_t)tmp.shortVal, &mod);
         return;
     }
@@ -49,62 +49,62 @@ static inline void fq_element_to_u256(U256* out, PFqElement pE) {
     out->limb[3] = (uint64_t)tmp.longVal[3];
 }
 
-static inline void u256_to_raw(FqRawElement out, const U256* a) {
-    out[0] = a->limb[0];
-    out[1] = a->limb[1];
-    out[2] = a->limb[2];
-    out[3] = a->limb[3];
-}
-
-static inline void u256_from_raw(U256* out, const FqRawElement in) {
+static inline void load_u256(U256* out, const FqRawElement in) {
     out->limb[0] = in[0];
     out->limb[1] = in[1];
     out->limb[2] = in[2];
     out->limb[3] = in[3];
 }
 
+static inline void store_u256(FqRawElement out, const U256* a) {
+    out[0] = a->limb[0];
+    out[1] = a->limb[1];
+    out[2] = a->limb[2];
+    out[3] = a->limb[3];
+}
+
 void Fq_str2element(PFqElement pE, char const* s, uint base) {
-    U256 mod; fq_get_modulus(&mod);
+    U256 mod; Fq_getModulusU256(&mod);
 
     U256 v;
     if (u256_set_str_mod(&v, s, (int)base, &mod) != 0) {
         u256_set_ui(&v, 0);
     }
-    fq_element_from_u256(pE, &v);
+    Fq_fromU256(pE, &v);
 }
 
 char* Fq_element2str(PFqElement pE) {
     U256 v;
-    fq_element_to_u256(&v, pE);
+    Fq_toU256(&v, pE);
     return u256_get_str_alloc(&v, 10);
 }
 
 void Fq_idiv(PFqElement r, PFqElement a, PFqElement b) {
     U256 ma, mb;
-    fq_element_to_u256(&ma, a);
-    fq_element_to_u256(&mb, b);
+    Fq_toU256(&ma, a);
+    Fq_toU256(&mb, b);
 
     U256 q, rem;
     if (u256_divmod(&q, &rem, &ma, &mb) != 0) {
         throw std::runtime_error("division by zero");
     }
-    fq_element_from_u256(r, &q);
+    Fq_fromU256(r, &q);
 }
 
 void Fq_mod(PFqElement r, PFqElement a, PFqElement b) {
     U256 ma, mb;
-    fq_element_to_u256(&ma, a);
-    fq_element_to_u256(&mb, b);
+    Fq_toU256(&ma, a);
+    Fq_toU256(&mb, b);
 
     U256 q, rem;
     if (u256_divmod(&q, &rem, &ma, &mb) != 0) {
         throw std::runtime_error("division by zero");
     }
-    fq_element_from_u256(r, &rem);
+    Fq_fromU256(r, &rem);
 }
 
-static inline void fq_q_minus_2_le(uint8_t out_le[32]) {
-    U256 mod; fq_get_modulus(&mod);
+static inline void fq_q_minus_2(uint8_t out_le[32]) {
+    U256 mod; Fq_getModulusU256(&mod);
     U256 e;
     (void)u256_sub_ui(&e, &mod, 2);
     u256_export(out_le, &e);
@@ -112,14 +112,14 @@ static inline void fq_q_minus_2_le(uint8_t out_le[32]) {
 
 void Fq_pow(PFqElement r, PFqElement a, PFqElement b) {
     U256 ma, mb;
-    fq_element_to_u256(&ma, a);
-    fq_element_to_u256(&mb, b);
+    Fq_toU256(&ma, a);
+    Fq_toU256(&mb, b);
 
     uint8_t exp_le[32];
     u256_export(exp_le, &mb);
 
     FqRawElement base_norm;
-    u256_to_raw(base_norm, &ma);
+    store_u256(base_norm, &ma);
 
     FqRawElement base_mont;
     Fq_rawCopy(base_mont, base_norm);
@@ -134,19 +134,19 @@ void Fq_pow(PFqElement r, PFqElement a, PFqElement b) {
     Fq_rawFromMontgomery(res_norm, R.v);
 
     U256 out;
-    u256_from_raw(&out, res_norm);
-    fq_element_from_u256(r, &out);
+    load_u256(&out, res_norm);
+    Fq_fromU256(r, &out);
 }
 
 void Fq_inv(PFqElement r, PFqElement a) {
     U256 ma;
-    fq_element_to_u256(&ma, a);
+    Fq_toU256(&ma, a);
 
     uint8_t exp_le[32];
-    fq_q_minus_2_le(exp_le);
+    fq_q_minus_2(exp_le);
 
     FqRawElement base_norm;
-    u256_to_raw(base_norm, &ma);
+    store_u256(base_norm, &ma);
 
     FqRawElement base_mont;
     Fq_rawCopy(base_mont, base_norm);
@@ -161,8 +161,8 @@ void Fq_inv(PFqElement r, PFqElement a) {
     Fq_rawFromMontgomery(res_norm, R.v);
 
     U256 out;
-    u256_from_raw(&out, res_norm);
-    fq_element_from_u256(r, &out);
+    load_u256(&out, res_norm);
+    Fq_fromU256(r, &out);
 }
 
 void Fq_div(PFqElement r, PFqElement a, PFqElement b) {
@@ -189,7 +189,7 @@ RawFq::RawFq() {
 RawFq::~RawFq() {}
 
 void RawFq::fromString(Element& r, const std::string& s, uint32_t radix) {
-    U256 mod; fq_get_modulus(&mod);
+    U256 mod; Fq_getModulusU256(&mod);
     U256 v;
     if (u256_set_str_mod(&v, s.c_str(), (int)radix, &mod) != 0) {
         u256_set_ui(&v, 0);
@@ -218,7 +218,7 @@ RawFq::Element RawFq::set(int value) {
 }
 
 void RawFq::set(Element& r, int value) {
-    U256 mod; fq_get_modulus(&mod);
+    U256 mod; Fq_getModulusU256(&mod);
     U256 v;
     u256_set_sint_mod(&v, (int64_t)value, &mod);
 
@@ -248,7 +248,7 @@ std::string RawFq::toString(const Element& a, uint32_t radix) {
 
 void RawFq::inv(Element& r, const Element& a) {
     uint8_t exp_le[32];
-    fq_q_minus_2_le(exp_le);
+    fq_q_minus_2(exp_le);
     exp(r, a, exp_le, (unsigned)sizeof(exp_le));
 }
 
