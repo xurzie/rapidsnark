@@ -378,35 +378,138 @@ void u256_import_be(U256* r, const uint8_t in[32]) {
     }
 }
 
-static inline void u256_set_bit(U256* a, uint32_t bit) {
-    uint32_t w = bit >> 6;
-    uint32_t s = bit & 63;
-    a->limb[w] |= (1ULL << s);
-}
+static inline int u256_clz64(uint64_t x){ return x?__builtin_clzll(x):64; }
+static inline int u256_num_limbs(const U256* a){ if(a->limb[3]) return 4; if(a->limb[2]) return 3; if(a->limb[1]) return 2; if(a->limb[0]) return 1; return 0; }
 
-static inline void u256_shl1_addbit(U256* a, uint64_t bit) {
-    uint64_t carry = bit & 1ULL;
-    for (int i = 0; i < 4; i++) {
-        uint64_t new_carry = a->limb[i] >> 63;
-        a->limb[i] = (a->limb[i] << 1) | carry;
-        carry = new_carry;
+static inline uint64_t div_1word(uint64_t* q, const uint64_t* u, int m, uint64_t v){
+    __uint128_t rem=0;
+    for(int i=m-1;i>=0;i--){
+        __uint128_t cur = (rem<<64) | (__uint128_t)u[i];
+        q[i] = (uint64_t)(cur / v);
+        rem  = (uint64_t)(cur % v);
     }
+    return (uint64_t)rem;
 }
 
-int u256_divmod(U256* q, U256* r, const U256* num, const U256* den) {
-    if (!q || !r || !num || !den) return -1;
-    if (u256_is_zero(den)) return -1;
+static inline uint64_t mul_sub_knuth(uint64_t* u, const uint64_t* v, int n, uint64_t qhat){
+    __uint128_t carry=0;
+    uint64_t borrow=0;
+    for(int i=0;i<n;i++){
+        __uint128_t prod = (__uint128_t)qhat * (__uint128_t)v[i] + carry;
+        uint64_t pl = (uint64_t)prod;
+        carry = (prod >> 64);
+        __int128_t t = (__int128_t)u[i] - (__int128_t)pl - (__int128_t)borrow;
+        u[i] = (uint64_t)t;
+        borrow = (t < 0) ? 1 : 0;
+    }
+    __int128_t ttop = (__int128_t)u[n] - (__int128_t)carry - (__int128_t)borrow;
+    u[n] = (uint64_t)ttop;
+    return (ttop < 0) ? 1 : 0;
+}
 
-    u256_set_ui(q, 0);
-    u256_set_ui(r, 0);
+static inline uint64_t add_back_knuth(uint64_t* u, const uint64_t* v, int n){
+    __uint128_t carry=0;
+    for(int i=0;i<n;i++){
+        __uint128_t t = (__uint128_t)u[i] + (__uint128_t)v[i] + carry;
+        u[i] = (uint64_t)t;
+        carry = (t >> 64);
+    }
+    __uint128_t ttop = (__uint128_t)u[n] + carry;
+    u[n] = (uint64_t)ttop;
+    return (uint64_t)(ttop >> 64);
+}
 
-    for (int i = 255; i >= 0; i--) {
-        u256_shl1_addbit(r, (uint64_t)u256_tstbit(num, (uint32_t)i));
-        if (u256_cmp(r, den) >= 0) {
-            (void)u256_sub(r, r, den);
-            u256_set_bit(q, (uint32_t)i);
+int u256_divmod(U256* q, U256* r, const U256* num, const U256* den){
+    if(!q||!r||!num||!den) return -1;
+    if(u256_is_zero(den)) return -1;
+
+    if(u256_cmp(num,den)<0){ u256_set_ui(q,0); *r=*num; return 0; }
+
+    int m = u256_num_limbs(num); // 1..4
+    int n = u256_num_limbs(den); // 1..4
+
+    if(n==1){
+        uint64_t v = den->limb[0];
+        uint64_t u[4] = {num->limb[0],num->limb[1],num->limb[2],num->limb[3]};
+        uint64_t qq[4] = {0,0,0,0};
+        uint64_t rem = div_1word(qq,u,4,v);
+        q->limb[0]=qq[0]; q->limb[1]=qq[1]; q->limb[2]=qq[2]; q->limb[3]=qq[3];
+        r->limb[0]=rem; r->limb[1]=r->limb[2]=r->limb[3]=0;
+        return 0;
+    }
+
+    uint64_t vnorm[4] = {0,0,0,0};
+    uint64_t unorm[5] = {0,0,0,0,0};
+    uint64_t vraw[4]  = {den->limb[0],den->limb[1],den->limb[2],den->limb[3]};
+    uint64_t uraw[5]  = {num->limb[0],num->limb[1],num->limb[2],num->limb[3],0};
+
+    unsigned s = (unsigned)u256_clz64(vraw[n-1]); // 0..63
+
+    if(s==0){
+        for(int i=0;i<n;i++) vnorm[i]=vraw[i];
+        for(int i=n;i<4;i++) vnorm[i]=0;
+        for(int i=0;i<5;i++) unorm[i]=uraw[i];
+    }else{
+        uint64_t carry=0;
+        for(int i=0;i<n;i++){
+            uint64_t x=vraw[i];
+            vnorm[i]=(x<<s)|carry;
+            carry = x >> (64 - s);
+        }
+        for(int i=n;i<4;i++) vnorm[i]=0;
+
+        carry=0;
+        for(int i=0;i<5;i++){
+            uint64_t x=uraw[i];
+            unorm[i]=(x<<s)|carry;
+            carry = x >> (64 - s);
         }
     }
+
+    int qn = m - n + 1; // 1..4
+    uint64_t qlimb[4] = {0,0,0,0};
+
+    const uint64_t v1 = vnorm[n-1];
+    const uint64_t v2 = vnorm[n-2];
+
+    for(int j=qn-1;j>=0;j--){
+        __uint128_t uj2 = ((__uint128_t)unorm[j+n] << 64) | (__uint128_t)unorm[j+n-1];
+        uint64_t qhat = (uint64_t)(uj2 / v1);
+        uint64_t rhat = (uint64_t)(uj2 % v1);
+
+        // adjust qhat (Knuth D3)
+        for(;;){
+            __uint128_t left  = (__uint128_t)qhat * (__uint128_t)v2;
+            __uint128_t right = ((__uint128_t)rhat << 64) | (__uint128_t)unorm[j+n-2];
+            if(left <= right) break;
+            qhat--;
+            rhat += v1;
+            if(rhat < v1) break; // overflow => stop
+        }
+
+        uint64_t* u_seg = &unorm[j];
+        uint64_t borrow_out = mul_sub_knuth(u_seg, vnorm, n, qhat);
+        if(borrow_out){
+            (void)add_back_knuth(u_seg, vnorm, n);
+            qhat--;
+        }
+        qlimb[j]=qhat;
+    }
+
+    uint64_t rlimb[4] = {0,0,0,0};
+    if(s==0){
+        for(int i=0;i<n;i++) rlimb[i]=unorm[i];
+    }else{
+        uint64_t carry=0;
+        for(int i=n-1;i>=0;i--){
+            uint64_t x=unorm[i];
+            rlimb[i]=(x>>s)|carry;
+            carry = x << (64 - s);
+        }
+    }
+
+    q->limb[0]=qlimb[0]; q->limb[1]=qlimb[1]; q->limb[2]=qlimb[2]; q->limb[3]=qlimb[3];
+    r->limb[0]=rlimb[0]; r->limb[1]=rlimb[1]; r->limb[2]=rlimb[2]; r->limb[3]=rlimb[3];
     return 0;
 }
 
