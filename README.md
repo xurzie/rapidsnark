@@ -29,7 +29,6 @@ brew install cmake gmp libsodium nasm
 ```sh
 git submodule init
 git submodule update
-./build_gmp.sh host
 make host
 ```
 
@@ -38,7 +37,6 @@ make host
 ```sh
 git submodule init
 git submodule update
-./build_gmp.sh macos_arm64
 make macos_arm64
 ```
 
@@ -47,7 +45,6 @@ make macos_arm64
 ```sh
 git submodule init
 git submodule update
-./build_gmp.sh host
 make host_arm64
 ```
 
@@ -56,7 +53,6 @@ make host_arm64
 ```sh
 git submodule init
 git submodule update
-./build_gmp.sh host
 make arm64
 ```
 
@@ -84,7 +80,6 @@ Compilation:
 ```sh
 git submodule init
 git submodule update
-./build_gmp.sh android
 make android
 ```
 
@@ -95,7 +90,6 @@ Install Xcode
 ```sh
 git submodule init
 git submodule update
-./build_gmp.sh ios
 make ios
 ```
 Open generated Xcode project and compile prover.
@@ -107,7 +101,6 @@ Install Xcode
 ```sh
 git submodule init
 git submodule update
-./build_gmp.sh ios_simulator
 make ios_simulator
 ```
 
