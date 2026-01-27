@@ -14,15 +14,15 @@ static bool Fr_init() {
     return true;
 }
 
-void Fr_getModulusU256(U256* q) {
+void Fr_getModulusU256(U256 *q) {
     q->limb[0] = (uint64_t)Fr_q.longVal[0];
     q->limb[1] = (uint64_t)Fr_q.longVal[1];
     q->limb[2] = (uint64_t)Fr_q.longVal[2];
     q->limb[3] = (uint64_t)Fr_q.longVal[3];
 }
 
-void Fr_fromU256(PFrElement pE, const U256* v) {
-    if (u256_fits_sint(v)) {
+void Fr_fromU256(PFrElement pE, const U256 *v) {
+    if (mp_fits_sint(v)) {
         pE->type = Fr_SHORT;
         pE->shortVal = (int32_t)v->limb[0];
         return;
@@ -34,13 +34,13 @@ void Fr_fromU256(PFrElement pE, const U256* v) {
     pE->longVal[3] = v->limb[3];
 }
 
-void Fr_toU256(U256* out, PFrElement pE) {
+void Fr_toU256(U256 *out, PFrElement pE) {
     FrElement tmp;
     Fr_toNormal(&tmp, pE);
 
     if (!(tmp.type & Fr_LONG)) {
         U256 mod; Fr_getModulusU256(&mod);
-        u256_set_sint_mod(out, (int64_t)tmp.shortVal, &mod);
+        mp_set_sint_mod(out, (int64_t)tmp.shortVal, &mod);
         return;
     }
 
@@ -50,34 +50,41 @@ void Fr_toU256(U256* out, PFrElement pE) {
     out->limb[3] = (uint64_t)tmp.longVal[3];
 }
 
-static inline void load_u256(U256* out, const FrRawElement in) {
+static inline void load_u256(U256 *out, const FrRawElement in) {
     out->limb[0] = in[0];
     out->limb[1] = in[1];
     out->limb[2] = in[2];
     out->limb[3] = in[3];
 }
 
-static inline void store_u256(FrRawElement out, const U256* a) {
+static inline void store_u256(FrRawElement out, const U256 *a) {
     out[0] = a->limb[0];
     out[1] = a->limb[1];
     out[2] = a->limb[2];
     out[3] = a->limb[3];
 }
 
+static char *mp_strdup_malloc(const std::string &s) {
+    char *p = (char*)std::malloc(s.size() + 1);
+    if (!p) return nullptr;
+    std::memcpy(p, s.c_str(), s.size() + 1);
+    return p;
+}
+
 void Fr_str2element(PFrElement pE, char const* s, uint base) {
     U256 mod; Fr_getModulusU256(&mod);
 
     U256 v;
-    if (u256_set_str_mod(&v, s, (int)base, &mod) != 0) {
-        u256_set_ui(&v, 0);
+    if (mp_set_str_mod(&v, s, (int)base, &mod) != 0) {
+        mp_set_ui(&v, 0);
     }
     Fr_fromU256(pE, &v);
 }
 
-char* Fr_element2str(PFrElement pE) {
+char *Fr_element2str(PFrElement pE) {
     U256 v;
     Fr_toU256(&v, pE);
-    return u256_get_str_alloc(&v, 10);
+    return mp_strdup_malloc(mp_get_str(&v, 10));
 }
 
 void Fr_idiv(PFrElement r, PFrElement a, PFrElement b) {
@@ -86,7 +93,7 @@ void Fr_idiv(PFrElement r, PFrElement a, PFrElement b) {
     Fr_toU256(&mb, b);
 
     U256 q, rem;
-    if (u256_divmod(&q, &rem, &ma, &mb) != 0) {
+    if (mp_divmod(&q, &rem, &ma, &mb) != 0) {
         throw std::runtime_error("division by zero");
     }
     Fr_fromU256(r, &q);
@@ -98,7 +105,7 @@ void Fr_mod(PFrElement r, PFrElement a, PFrElement b) {
     Fr_toU256(&mb, b);
 
     U256 q, rem;
-    if (u256_divmod(&q, &rem, &ma, &mb) != 0) {
+    if (mp_divmod(&q, &rem, &ma, &mb) != 0) {
         throw std::runtime_error("division by zero");
     }
     Fr_fromU256(r, &rem);
@@ -107,8 +114,8 @@ void Fr_mod(PFrElement r, PFrElement a, PFrElement b) {
 static inline void fr_q_minus_2(uint8_t out[32]) {
     U256 mod; Fr_getModulusU256(&mod);
     U256 e;
-    (void)u256_sub_ui(&e, &mod, 2);
-    u256_export(out, &e);
+    (void)mp_sub_ui(&e, &mod, 2);
+    mp_export(out, &e);
 }
 
 void Fr_pow(PFrElement r, PFrElement a, PFrElement b) {
@@ -117,7 +124,7 @@ void Fr_pow(PFrElement r, PFrElement a, PFrElement b) {
     Fr_toU256(&mb, b);
 
     uint8_t exp_le[32];
-    u256_export(exp_le, &mb);
+    mp_export(exp_le, &mb);
 
     FrRawElement base_norm;
     store_u256(base_norm, &ma);
@@ -192,8 +199,8 @@ RawFr::~RawFr() {}
 void RawFr::fromString(Element& r, const std::string& s, uint32_t radix) {
     U256 mod; Fr_getModulusU256(&mod);
     U256 v;
-    if (u256_set_str_mod(&v, s.c_str(), (int)radix, &mod) != 0) {
-        u256_set_ui(&v, 0);
+    if (mp_set_str_mod(&v, s.c_str(), (int)radix, &mod) != 0) {
+        mp_set_ui(&v, 0);
     }
     r.v[0] = v.limb[0];
     r.v[1] = v.limb[1];
@@ -204,7 +211,7 @@ void RawFr::fromString(Element& r, const std::string& s, uint32_t radix) {
 
 void RawFr::fromUI(Element& r, unsigned long int v) {
     U256 x;
-    u256_set_ui(&x, (uint64_t)v);
+    mp_set_ui(&x, (uint64_t)v);
     r.v[0] = x.limb[0];
     r.v[1] = x.limb[1];
     r.v[2] = x.limb[2];
@@ -221,7 +228,7 @@ RawFr::Element RawFr::set(int value) {
 void RawFr::set(Element& r, int value) {
     U256 mod; Fr_getModulusU256(&mod);
     U256 v;
-    u256_set_sint_mod(&v, (int64_t)value, &mod);
+    mp_set_sint_mod(&v, (int64_t)value, &mod);
 
     r.v[0] = v.limb[0];
     r.v[1] = v.limb[1];
@@ -240,11 +247,7 @@ std::string RawFr::toString(const Element& a, uint32_t radix) {
     v.limb[2] = tmp.v[2];
     v.limb[3] = tmp.v[3];
 
-    char* s = u256_get_str_alloc(&v, (int)radix);
-    if (!s) return std::string();
-    std::string out(s);
-    std::free(s);
-    return out;
+    return mp_get_str(&v, (int)radix);
 }
 
 void RawFr::inv(Element& r, const Element& a) {
@@ -295,7 +298,7 @@ int RawFr::toRprBE(const Element& element, uint8_t* data, int bytes) {
     v.limb[2] = tmp.v[2];
     v.limb[3] = tmp.v[3];
 
-    u256_export_be(data, &v);
+    mp_export_be(data, &v);
     return need;
 }
 
@@ -304,7 +307,7 @@ int RawFr::fromRprBE(Element& element, const uint8_t* data, int bytes) {
     if (bytes < need) return -need;
 
     U256 v;
-    u256_import_be(&v, data);
+    mp_import_be(&v, data);
 
     element.v[0] = v.limb[0];
     element.v[1] = v.limb[1];

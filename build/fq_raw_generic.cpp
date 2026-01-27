@@ -3,6 +3,186 @@
 
 #include <cstdint>
 #include <cstring>
+#include <cstddef>
+
+#if !defined(__SIZEOF_INT128__)
+#error "montgomery helpers require __int128"
+#endif
+
+static inline uint64_t limbs_mul_1(uint64_t *r, const uint64_t *a, size_t n, uint64_t b) {
+    __uint128_t carry = 0;
+    for (size_t i = 0; i < n; i++) {
+        __uint128_t t = (__uint128_t)a[i] * b + carry;
+        r[i] = (uint64_t)t;
+        carry = t >> 64;
+    }
+    return (uint64_t)carry;
+}
+
+static inline uint64_t limbs_addmul_1(uint64_t *r, const uint64_t *a, size_t n, uint64_t b) {
+    __uint128_t carry = 0;
+    for (size_t i = 0; i < n; i++) {
+        __uint128_t t = (__uint128_t)a[i] * b + r[i] + carry;
+        r[i] = (uint64_t)t;
+        carry = t >> 64;
+    }
+    return (uint64_t)carry;
+}
+
+static inline void limbs_add_inplace(uint64_t *r, size_t rlen, const uint64_t *a, size_t alen) {
+    __uint128_t carry = 0;
+    size_t i = 0;
+
+    for (; i < alen; i++) {
+        __uint128_t t = (__uint128_t)r[i] + a[i] + carry;
+        r[i] = (uint64_t)t;
+        carry = t >> 64;
+    }
+    while (carry && i < rlen) {
+        __uint128_t t = (__uint128_t)r[i] + carry;
+        r[i] = (uint64_t)t;
+        carry = t >> 64;
+        i++;
+    }
+}
+
+static inline int limbs_cmp(const uint64_t *a, const uint64_t *b, size_t n) {
+    for (size_t i = n; i-- > 0;) {
+        if (a[i] < b[i]) return -1;
+        if (a[i] > b[i]) return 1;
+    }
+    return 0;
+}
+
+static inline uint64_t limbs_sub_n(uint64_t *r, const uint64_t *a, const uint64_t *b, size_t n) {
+    uint64_t borrow = 0;
+    for (size_t i = 0; i < n; i++) {
+        uint64_t ai = a[i];
+        uint64_t bi = b[i];
+        uint64_t ri = ai - bi - borrow;
+        borrow = (borrow ? (ai <= bi) : (ai < bi));
+        r[i] = ri;
+    }
+    return borrow;
+}
+
+static inline void mont_mul_4(uint64_t out[4], const uint64_t a[4], const uint64_t b[4],
+                             const uint64_t mod5[5], uint64_t np) {
+    constexpr size_t N = 5;
+
+    uint64_t p0[N] = {0};
+    uint64_t p1[N] = {0};
+    uint64_t p2[N] = {0};
+    uint64_t p3[N] = {0};
+
+    p0[4] = limbs_mul_1(p0, b, 4, a[0]);
+
+    uint64_t m = np * p0[0];
+    p1[1] = limbs_addmul_1(p0, mod5, N, m);
+
+    p1[4] = limbs_addmul_1(p1, b, 4, a[1]);
+    limbs_add_inplace(p1, N, p0 + 1, N - 1);
+
+    m = np * p1[0];
+    p2[1] = limbs_addmul_1(p1, mod5, N, m);
+
+    p2[4] = limbs_addmul_1(p2, b, 4, a[2]);
+    limbs_add_inplace(p2, N, p1 + 1, N - 1);
+
+    m = np * p2[0];
+    p3[1] = limbs_addmul_1(p2, mod5, N, m);
+
+    p3[4] = limbs_addmul_1(p3, b, 4, a[3]);
+    limbs_add_inplace(p3, N, p2 + 1, N - 1);
+
+    m = np * p3[0];
+    (void)limbs_addmul_1(p3, mod5, N, m);
+
+    out[0] = p3[1];
+    out[1] = p3[2];
+    out[2] = p3[3];
+    out[3] = p3[4];
+
+    if (limbs_cmp(out, mod5, 4) >= 0) {
+        (void)limbs_sub_n(out, out, mod5, 4);
+    }
+}
+
+static inline void mont_mul_4_u64(uint64_t out[4], const uint64_t a[4], uint64_t b,
+                                 const uint64_t mod5[5], uint64_t np) {
+    constexpr size_t N = 5;
+
+    uint64_t p0[N] = {0};
+    uint64_t p1[N] = {0};
+    uint64_t p2[N] = {0};
+    uint64_t p3[N] = {0};
+
+    p0[4] = limbs_mul_1(p0, a, 4, b);
+
+    uint64_t m = np * p0[0];
+    p1[1] = limbs_addmul_1(p0, mod5, N, m);
+    limbs_add_inplace(p1, N, p0 + 1, N - 1);
+
+    m = np * p1[0];
+    p2[1] = limbs_addmul_1(p1, mod5, N, m);
+    limbs_add_inplace(p2, N, p1 + 1, N - 1);
+
+    m = np * p2[0];
+    p3[1] = limbs_addmul_1(p2, mod5, N, m);
+    limbs_add_inplace(p3, N, p2 + 1, N - 1);
+
+    m = np * p3[0];
+    (void)limbs_addmul_1(p3, mod5, N, m);
+
+    out[0] = p3[1];
+    out[1] = p3[2];
+    out[2] = p3[3];
+    out[3] = p3[4];
+
+    if (limbs_cmp(out, mod5, 4) >= 0) {
+        (void)limbs_sub_n(out, out, mod5, 4);
+    }
+}
+
+static inline void mont_reduce_4(uint64_t out[4], const uint64_t in_mont[4],
+                                const uint64_t mod5[5], uint64_t np) {
+    constexpr size_t N = 5;
+
+    uint64_t p0[N] = {0};
+    uint64_t p1[N] = {0};
+    uint64_t p2[N] = {0};
+    uint64_t p3[N] = {0};
+
+    p0[0] = in_mont[0];
+    p0[1] = in_mont[1];
+    p0[2] = in_mont[2];
+    p0[3] = in_mont[3];
+    p0[4] = 0;
+
+    uint64_t m = np * p0[0];
+    p1[1] = limbs_addmul_1(p0, mod5, N, m);
+    limbs_add_inplace(p1, N, p0 + 1, N - 1);
+
+    m = np * p1[0];
+    p2[1] = limbs_addmul_1(p1, mod5, N, m);
+    limbs_add_inplace(p2, N, p1 + 1, N - 1);
+
+    m = np * p2[0];
+    p3[1] = limbs_addmul_1(p2, mod5, N, m);
+    limbs_add_inplace(p3, N, p2 + 1, N - 1);
+
+    m = np * p3[0];
+    (void)limbs_addmul_1(p3, mod5, N, m);
+
+    out[0] = p3[1];
+    out[1] = p3[2];
+    out[2] = p3[3];
+    out[3] = p3[4];
+
+    if (limbs_cmp(out, mod5, 4) >= 0) {
+        (void)limbs_sub_n(out, out, mod5, 4);
+    }
+}
 
 static uint64_t Fq_rawq[] = {
     0x3c208c16d87cfd47ULL,
@@ -22,100 +202,56 @@ static const U256 Fq_qU256 = {{
     0x30644e72e131a029ULL
 }};
 
-static inline void load_u256(U256* out, const FqRawElement in) {
-    out->limb[0] = in[0];
-    out->limb[1] = in[1];
-    out->limb[2] = in[2];
-    out->limb[3] = in[3];
-}
-
-static inline void store_u256(FqRawElement out, const U256* a) {
-    out[0] = a->limb[0];
-    out[1] = a->limb[1];
-    out[2] = a->limb[2];
-    out[3] = a->limb[3];
-}
-
 void Fq_rawAdd(FqRawElement pRawResult, const FqRawElement pRawA, const FqRawElement pRawB)
 {
-    U256 a, b, r;
-    load_u256(&a, pRawA);
-    load_u256(&b, pRawB);
-
-    uint64_t carry = u256_add(&r, &a, &b);
-    if (carry || u256_cmp(&r, &Fq_qU256) >= 0) {
-        (void)u256_sub(&r, &r, &Fq_qU256);
+    uint64_t carry = mpn_add_n(pRawResult, pRawA, pRawB, 4);
+    if (carry || mpn_cmp(pRawResult, Fq_qU256.limb, 4) >= 0) {
+        (void)mpn_sub_n(pRawResult, pRawResult, Fq_qU256.limb, 4);
     }
-    store_u256(pRawResult, &r);
 }
 
 void Fq_rawAddLS(FqRawElement pRawResult, FqRawElement pRawA, uint64_t rawB)
 {
-    U256 a, r;
-    load_u256(&a, pRawA);
-
-    uint64_t carry = u256_add_ui(&r, &a, rawB);
-    if (carry || u256_cmp(&r, &Fq_qU256) >= 0) {
-        (void)u256_sub(&r, &r, &Fq_qU256);
+    uint64_t carry = mpn_add_1(pRawResult, pRawA, 4, rawB);
+    if (carry || mpn_cmp(pRawResult, Fq_qU256.limb, 4) >= 0) {
+        (void)mpn_sub_n(pRawResult, pRawResult, Fq_qU256.limb, 4);
     }
-    store_u256(pRawResult, &r);
 }
 
 void Fq_rawSub(FqRawElement pRawResult, const FqRawElement pRawA, const FqRawElement pRawB)
 {
-    U256 a, b, r;
-    load_u256(&a, pRawA);
-    load_u256(&b, pRawB);
-
-    uint64_t borrow = u256_sub(&r, &a, &b);
+    uint64_t borrow = mpn_sub_n(pRawResult, pRawA, pRawB, 4);
     if (borrow) {
-        (void)u256_add(&r, &r, &Fq_qU256);
+        (void)mpn_add_n(pRawResult, pRawResult, Fq_qU256.limb, 4);
     }
-    store_u256(pRawResult, &r);
 }
 
 void Fq_rawSubRegular(FqRawElement pRawResult, FqRawElement pRawA, FqRawElement pRawB)
 {
-    U256 a, b, r;
-    load_u256(&a, pRawA);
-    load_u256(&b, pRawB);
-    (void)u256_sub(&r, &a, &b);
-    store_u256(pRawResult, &r);
+    (void)mpn_sub_n(pRawResult, pRawA, pRawB, 4);
 }
 
 void Fq_rawSubSL(FqRawElement pRawResult, uint64_t rawA, FqRawElement pRawB)
 {
-    U256 a, b, r;
-    u256_set_ui(&a, rawA);
-    load_u256(&b, pRawB);
-
-    uint64_t borrow = u256_sub(&r, &a, &b);
+    const uint64_t a[4] = { rawA, 0, 0, 0 };
+    uint64_t borrow = mpn_sub_n(pRawResult, a, pRawB, 4);
     if (borrow) {
-        (void)u256_add(&r, &r, &Fq_qU256);
+        (void)mpn_add_n(pRawResult, pRawResult, Fq_qU256.limb, 4);
     }
-    store_u256(pRawResult, &r);
 }
 
 void Fq_rawSubLS(FqRawElement pRawResult, FqRawElement pRawA, uint64_t rawB)
 {
-    U256 a, r;
-    load_u256(&a, pRawA);
-
-    uint64_t borrow = u256_sub_ui(&r, &a, rawB);
+    uint64_t borrow = mpn_sub_1(pRawResult, pRawA, 4, rawB);
     if (borrow) {
-        (void)u256_add(&r, &r, &Fq_qU256);
+        (void)mpn_add_n(pRawResult, pRawResult, Fq_qU256.limb, 4);
     }
-    store_u256(pRawResult, &r);
 }
 
 void Fq_rawNeg(FqRawElement pRawResult, const FqRawElement pRawA)
 {
-    U256 a, r;
-    load_u256(&a, pRawA);
-
-    if (!u256_is_zero(&a)) {
-        (void)u256_sub(&r, &Fq_qU256, &a);
-        store_u256(pRawResult, &r);
+    if (!mpn_zero_p(pRawA, 4)) {
+        (void)mpn_sub_n(pRawResult, Fq_qU256.limb, pRawA, 4);
     } else {
         pRawResult[0] = pRawResult[1] = pRawResult[2] = pRawResult[3] = 0;
     }
@@ -123,23 +259,19 @@ void Fq_rawNeg(FqRawElement pRawResult, const FqRawElement pRawA)
 
 void Fq_rawNegLS(FqRawElement pRawResult, FqRawElement pRawA, uint64_t rawB)
 {
-    U256 a, t, r;
-    load_u256(&a, pRawA);
+    uint64_t t[4];
+    (void)mpn_sub_1(t, Fq_qU256.limb, 4, rawB);    // t = q - rawB
 
-    (void)u256_sub_ui(&t, &Fq_qU256, rawB);
-
-    if (u256_cmp(&t, &a) >= 0) {
-        (void)u256_sub(&r, &t, &a);
+    if (mpn_cmp(t, pRawA, 4) >= 0) {
+        (void)mpn_sub_n(pRawResult, t, pRawA, 4);
     } else {
-        U256 tt;
-        (void)u256_add(&tt, &t, &Fq_qU256);
-        (void)u256_sub(&r, &tt, &a);
-        if (u256_cmp(&r, &Fq_qU256) >= 0) {
-            (void)u256_sub(&r, &r, &Fq_qU256);
+        uint64_t tt[4];
+        (void)mpn_add_n(tt, t, Fq_qU256.limb, 4);  // tt = t + q (без переполнения для BN254)
+        (void)mpn_sub_n(pRawResult, tt, pRawA, 4);
+        if (mpn_cmp(pRawResult, Fq_qU256.limb, 4) >= 0) {
+            (void)mpn_sub_n(pRawResult, pRawResult, Fq_qU256.limb, 4);
         }
     }
-
-    store_u256(pRawResult, &r);
 }
 
 void Fq_rawCopy(FqRawElement pRawResult, const FqRawElement pRawA)
@@ -160,17 +292,17 @@ int Fq_rawIsEq(const FqRawElement pRawA, const FqRawElement pRawB)
 
 void Fq_rawMMul(FqRawElement pRawResult, const FqRawElement pRawA, const FqRawElement pRawB)
 {
-    u256_mont_mul_4(pRawResult, pRawA, pRawB, Fq_rawq, Fq_np);
+    mont_mul_4(pRawResult, pRawA, pRawB, Fq_rawq, Fq_np);
 }
 
 void Fq_rawMMul1(FqRawElement pRawResult, const FqRawElement pRawA, uint64_t pRawB)
 {
-    u256_mont_mul_4_u64(pRawResult, pRawA, pRawB, Fq_rawq, Fq_np);
+    mont_mul_4_u64(pRawResult, pRawA, pRawB, Fq_rawq, Fq_np);
 }
 
 void Fq_rawFromMontgomery(FqRawElement pRawResult, const FqRawElement &pRawA)
 {
-    u256_mont_reduce_4(pRawResult, pRawA, Fq_rawq, Fq_np);
+    mont_reduce_4(pRawResult, pRawA, Fq_rawq, Fq_np);
 }
 
 int Fq_rawIsZero(const FqRawElement rawA)
@@ -180,10 +312,7 @@ int Fq_rawIsZero(const FqRawElement rawA)
 
 int Fq_rawCmp(FqRawElement pRawA, FqRawElement pRawB)
 {
-    U256 a, b;
-    load_u256(&a, pRawA);
-    load_u256(&b, pRawB);
-    return u256_cmp(&a, &b);
+    return mpn_cmp(pRawA, pRawB, 4);
 }
 
 void Fq_rawSwap(FqRawElement pRawResult, FqRawElement pRawA)
@@ -195,107 +324,94 @@ void Fq_rawSwap(FqRawElement pRawResult, FqRawElement pRawA)
 
 void Fq_rawCopyS2L(FqRawElement pRawResult, int64_t val)
 {
-    U256 r;
-    r.limb[0] = (uint64_t)val;
-    r.limb[1] = 0;
-    r.limb[2] = 0;
-    r.limb[3] = 0;
+    uint64_t tmp[4];
+    tmp[0] = (uint64_t)val;
+    tmp[1] = 0;
+    tmp[2] = 0;
+    tmp[3] = 0;
 
     if (val < 0) {
-        r.limb[1] = ~0ULL;
-        r.limb[2] = ~0ULL;
-        r.limb[3] = ~0ULL;
-        (void)u256_add(&r, &r, &Fq_qU256);
+        tmp[1] = ~0ULL;
+        tmp[2] = ~0ULL;
+        tmp[3] = ~0ULL;
+        (void)mpn_add_n(pRawResult, tmp, Fq_qU256.limb, 4);
+        return;
     }
-
-    store_u256(pRawResult, &r);
+    pRawResult[0] = tmp[0]; pRawResult[1] = tmp[1]; pRawResult[2] = tmp[2]; pRawResult[3] = tmp[3];
 }
 
 void Fq_rawAnd(FqRawElement pRawResult, FqRawElement pRawA, FqRawElement pRawB)
 {
-    U256 r;
-    r.limb[0] = pRawA[0] & pRawB[0];
-    r.limb[1] = pRawA[1] & pRawB[1];
-    r.limb[2] = pRawA[2] & pRawB[2];
-    r.limb[3] = (pRawA[3] & pRawB[3]) & lboMask;
+    pRawResult[0] = pRawA[0] & pRawB[0];
+    pRawResult[1] = pRawA[1] & pRawB[1];
+    pRawResult[2] = pRawA[2] & pRawB[2];
+    pRawResult[3] = (pRawA[3] & pRawB[3]) & lboMask;
 
-    if (u256_cmp(&r, &Fq_qU256) >= 0) {
-        (void)u256_sub(&r, &r, &Fq_qU256);
+    if (mpn_cmp(pRawResult, Fq_qU256.limb, 4) >= 0) {
+        (void)mpn_sub_n(pRawResult, pRawResult, Fq_qU256.limb, 4);
     }
-    store_u256(pRawResult, &r);
 }
 
 void Fq_rawOr(FqRawElement pRawResult, FqRawElement pRawA, FqRawElement pRawB)
 {
-    U256 r;
-    r.limb[0] = pRawA[0] | pRawB[0];
-    r.limb[1] = pRawA[1] | pRawB[1];
-    r.limb[2] = pRawA[2] | pRawB[2];
-    r.limb[3] = (pRawA[3] | pRawB[3]) & lboMask;
+    pRawResult[0] = pRawA[0] | pRawB[0];
+    pRawResult[1] = pRawA[1] | pRawB[1];
+    pRawResult[2] = pRawA[2] | pRawB[2];
+    pRawResult[3] = (pRawA[3] | pRawB[3]) & lboMask;
 
-    if (u256_cmp(&r, &Fq_qU256) >= 0) {
-        (void)u256_sub(&r, &r, &Fq_qU256);
+    if (mpn_cmp(pRawResult, Fq_qU256.limb, 4) >= 0) {
+        (void)mpn_sub_n(pRawResult, pRawResult, Fq_qU256.limb, 4);
     }
-    store_u256(pRawResult, &r);
 }
 
 void Fq_rawXor(FqRawElement pRawResult, FqRawElement pRawA, FqRawElement pRawB)
 {
-    U256 r;
-    r.limb[0] = pRawA[0] ^ pRawB[0];
-    r.limb[1] = pRawA[1] ^ pRawB[1];
-    r.limb[2] = pRawA[2] ^ pRawB[2];
-    r.limb[3] = (pRawA[3] ^ pRawB[3]) & lboMask;
+    pRawResult[0] = pRawA[0] ^ pRawB[0];
+    pRawResult[1] = pRawA[1] ^ pRawB[1];
+    pRawResult[2] = pRawA[2] ^ pRawB[2];
+    pRawResult[3] = (pRawA[3] ^ pRawB[3]) & lboMask;
 
-    if (u256_cmp(&r, &Fq_qU256) >= 0) {
-        (void)u256_sub(&r, &r, &Fq_qU256);
+    if (mpn_cmp(pRawResult, Fq_qU256.limb, 4) >= 0) {
+        (void)mpn_sub_n(pRawResult, pRawResult, Fq_qU256.limb, 4);
     }
-    store_u256(pRawResult, &r);
 }
 
 void Fq_rawShl(FqRawElement r, FqRawElement a, uint64_t b)
 {
-    U256 A, R;
-    load_u256(&A, a);
-
     if (b >= 256) {
         r[0] = r[1] = r[2] = r[3] = 0;
         return;
     }
 
-    u256_shl_2exp(&R, &A, (uint32_t)b);
-    R.limb[3] &= lboMask;
-
-    if (u256_cmp(&R, &Fq_qU256) >= 0) {
-        (void)u256_sub(&R, &R, &Fq_qU256);
+    uint64_t tmp[4];
+    (void)mpn_lshift(tmp, a, 4, (unsigned)b);
+    tmp[3] &= lboMask;
+    if (mpn_cmp(tmp, Fq_qU256.limb, 4) >= 0) {
+        (void)mpn_sub_n(tmp, tmp, Fq_qU256.limb, 4);
     }
-    store_u256(r, &R);
+    r[0] = tmp[0]; r[1] = tmp[1]; r[2] = tmp[2]; r[3] = tmp[3];
 }
 
 void Fq_rawShr(FqRawElement r, FqRawElement a, uint64_t b)
 {
-    U256 A, R;
-    load_u256(&A, a);
-
     if (b >= 256) {
         r[0] = r[1] = r[2] = r[3] = 0;
         return;
     }
 
-    u256_fdiv_q_2exp(&R, &A, (uint32_t)b);
-    store_u256(r, &R);
+    uint64_t tmp[4];
+    (void)mpn_rshift(tmp, a, 4, (unsigned)b);
+    r[0] = tmp[0]; r[1] = tmp[1]; r[2] = tmp[2]; r[3] = tmp[3];
 }
 
 void Fq_rawNot(FqRawElement pRawResult, FqRawElement pRawA)
 {
-    U256 r;
-    r.limb[0] = ~pRawA[0];
-    r.limb[1] = ~pRawA[1];
-    r.limb[2] = ~pRawA[2];
-    r.limb[3] = (~pRawA[3]) & lboMask;
+    pRawResult[0] = ~pRawA[0];
+    pRawResult[1] = ~pRawA[1];
+    pRawResult[2] = ~pRawA[2];
+    pRawResult[3] = (~pRawA[3]) & lboMask;
 
-    if (u256_cmp(&r, &Fq_qU256) >= 0) {
-        (void)u256_sub(&r, &r, &Fq_qU256);
+    if (mpn_cmp(pRawResult, Fq_qU256.limb, 4) >= 0) {
+        (void)mpn_sub_n(pRawResult, pRawResult, Fq_qU256.limb, 4);
     }
-    store_u256(pRawResult, &r);
 }
