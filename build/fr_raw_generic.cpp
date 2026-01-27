@@ -207,6 +207,7 @@ void Fr_rawAdd(FrRawElement pRawResult, const FrRawElement pRawA, const FrRawEle
     uint64_t carry = mpn_add_n(pRawResult, pRawA, pRawB, 4);
     if (carry || mpn_cmp(pRawResult, Fr_qU256.limb, 4) >= 0) {
         (void)mpn_sub_n(pRawResult, pRawResult, Fr_qU256.limb, 4);
+    }
 }
 
  void Fr_rawAddLS(FrRawElement pRawResult, FrRawElement pRawA, uint64_t rawB)
