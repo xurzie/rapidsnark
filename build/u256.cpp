@@ -4,6 +4,8 @@
 #include <string>
 #include <climits>
 
+using mp_size_t = long;
+
 void mp_set_ui(U256 *r, uint64_t x) {
     r->limb[0] = x;
     r->limb[1] = 0;
@@ -41,22 +43,22 @@ static inline uint64_t sub_borrow_u64(uint64_t a, uint64_t b, uint64_t c, uint64
 #endif
 }
 
-void mpn_zero(mp_limb_t *rp, mp_size_t n) {
+static void mpn_zero(mp_limb_t *rp, mp_size_t n) {
     std::memset(rp, 0, n * sizeof(mp_limb_t));
 }
 
-void mpn_copyi(mp_limb_t *rp, const mp_limb_t *ap, mp_size_t n) {
+static void mpn_copyi(mp_limb_t *rp, const mp_limb_t *ap, mp_size_t n) {
     if (rp == ap) return;
     std::memcpy(rp, ap, n * sizeof(mp_limb_t));
 }
 
-int mpn_zero_p(const mp_limb_t *ap, mp_size_t n) {
+static int mpn_zero_p(const mp_limb_t *ap, mp_size_t n) {
     mp_limb_t acc = 0;
     for (mp_size_t i = 0; i < n; i++) acc |= ap[i];
     return acc == 0;
 }
 
-int mpn_cmp(const mp_limb_t *ap, const mp_limb_t *bp, mp_size_t n) {
+static int mpn_cmp(const mp_limb_t *ap, const mp_limb_t *bp, mp_size_t n) {
     for (mp_size_t i = n; i-- > 0;) {
         if (ap[i] < bp[i]) return -1;
         if (ap[i] > bp[i]) return  1;
@@ -64,7 +66,7 @@ int mpn_cmp(const mp_limb_t *ap, const mp_limb_t *bp, mp_size_t n) {
     return 0;
 }
 
-int mpn_cmp_1(const mp_limb_t *ap, mp_size_t n, mp_limb_t b) {
+static int mpn_cmp_1(const mp_limb_t *ap, mp_size_t n, mp_limb_t b) {
     for (mp_size_t i = n; i-- > 1;) {
         if (ap[i] != 0) return 1;
     }
@@ -74,7 +76,7 @@ int mpn_cmp_1(const mp_limb_t *ap, mp_size_t n, mp_limb_t b) {
     return 0;
 }
 
-mp_limb_t mpn_add_n(mp_limb_t *rp, const mp_limb_t *ap, const mp_limb_t *bp, mp_size_t n) {
+static mp_limb_t mpn_add_n(mp_limb_t *rp, const mp_limb_t *ap, const mp_limb_t *bp, mp_size_t n) {
     mp_limb_t c = 0;
     for (mp_size_t i = 0; i < n; i++) {
         c = add_carry_u64(ap[i], bp[i], c, &rp[i]);
@@ -82,7 +84,7 @@ mp_limb_t mpn_add_n(mp_limb_t *rp, const mp_limb_t *ap, const mp_limb_t *bp, mp_
     return c;
 }
 
-mp_limb_t mpn_sub_n(mp_limb_t *rp, const mp_limb_t *ap, const mp_limb_t *bp, mp_size_t n) {
+static mp_limb_t mpn_sub_n(mp_limb_t *rp, const mp_limb_t *ap, const mp_limb_t *bp, mp_size_t n) {
     mp_limb_t b = 0;
     for (mp_size_t i = 0; i < n; i++) {
         b = sub_borrow_u64(ap[i], bp[i], b, &rp[i]);
@@ -90,7 +92,7 @@ mp_limb_t mpn_sub_n(mp_limb_t *rp, const mp_limb_t *ap, const mp_limb_t *bp, mp_
     return b;
 }
 
-mp_limb_t mpn_add_1(mp_limb_t *rp, const mp_limb_t *ap, mp_size_t n, mp_limb_t b) {
+static mp_limb_t mpn_add_1(mp_limb_t *rp, const mp_limb_t *ap, mp_size_t n, mp_limb_t b) {
     mp_limb_t c = 0;
     if (n == 0) return b ? 1 : 0;
 
@@ -101,7 +103,7 @@ mp_limb_t mpn_add_1(mp_limb_t *rp, const mp_limb_t *ap, mp_size_t n, mp_limb_t b
     return c;
 }
 
-mp_limb_t mpn_sub_1(mp_limb_t *rp, const mp_limb_t *ap, mp_size_t n, mp_limb_t b) {
+static mp_limb_t mpn_sub_1(mp_limb_t *rp, const mp_limb_t *ap, mp_size_t n, mp_limb_t b) {
     mp_limb_t br = 0;
     if (n == 0) return b ? 1 : 0;
 
@@ -112,7 +114,7 @@ mp_limb_t mpn_sub_1(mp_limb_t *rp, const mp_limb_t *ap, mp_size_t n, mp_limb_t b
     return br;
 }
 
-int mpn_tstbit(const mp_limb_t *ap, mp_size_t n, unsigned bit) {
+static int mpn_tstbit(const mp_limb_t *ap, mp_size_t n, unsigned bit) {
     const unsigned maxBits = (unsigned)(n * 64);
     if (bit >= maxBits) return 0;
     const unsigned w = bit >> 6;
@@ -120,7 +122,7 @@ int mpn_tstbit(const mp_limb_t *ap, mp_size_t n, unsigned bit) {
     return (int)((ap[w] >> s) & 1ULL);
 }
 
-void mpn_rshift(mp_limb_t *rp, const mp_limb_t *ap, mp_size_t n, unsigned k) {
+static void mpn_rshift(mp_limb_t *rp, const mp_limb_t *ap, mp_size_t n, unsigned k) {
     const unsigned maxBits = (unsigned)(n * 64);
     if (k >= maxBits) { mpn_zero(rp, n); return; }
     if (k == 0) { mpn_copyi(rp, ap, n); return; }
@@ -148,7 +150,7 @@ void mpn_rshift(mp_limb_t *rp, const mp_limb_t *ap, mp_size_t n, unsigned k) {
     }
 }
 
-void mpn_lshift(mp_limb_t *rp, const mp_limb_t *ap, mp_size_t n, unsigned k) {
+static void mpn_lshift(mp_limb_t *rp, const mp_limb_t *ap, mp_size_t n, unsigned k) {
     const unsigned maxBits = (unsigned)(n * 64);
     if (k >= maxBits) { mpn_zero(rp, n); return; }
     if (k == 0) { mpn_copyi(rp, ap, n); return; }
@@ -590,5 +592,77 @@ void mp_set_sint_mod(U256 *r, int64_t x, const U256 *mod) {
 }
 
 void mp_shl_2exp(U256 *r, const U256 *a, uint32_t k) { mpn_lshift(r->limb, a->limb, 4, k); }
+void mp_shr_2exp(U256 *r, const U256 *a, uint32_t k) { mpn_rshift(r->limb, a->limb, 4, k); }
 
+void mp_set_ui(mp_limb_t *r, uint64_t x) {
+    r[0] = (mp_limb_t)x;
+    for (size_t i = 1; i < (size_t)MP_N64; i++) r[i] = 0;
+}
 
+void mp_copy(mp_limb_t *r, const mp_limb_t *a) {
+    mpn_copyi(r, a, (mp_size_t)MP_N64);
+}
+
+int mp_cmp(const mp_limb_t *a, const mp_limb_t *b) {
+    return mpn_cmp(a, b, (mp_size_t)MP_N64);
+}
+
+int mp_cmp_ui(const mp_limb_t *a, uint64_t x) {
+    return mpn_cmp_1(a, (mp_size_t)MP_N64, (mp_limb_t)x);
+}
+
+int mp_is_zero(const mp_limb_t *a) {
+    return mpn_zero_p(a, (mp_size_t)MP_N64);
+}
+
+uint64_t mp_add(mp_limb_t *r, const mp_limb_t *a, const mp_limb_t *b) {
+    return (uint64_t)mpn_add_n(r, a, b, (mp_size_t)MP_N64);
+}
+
+uint64_t mp_sub(mp_limb_t *r, const mp_limb_t *a, const mp_limb_t *b) {
+    return (uint64_t)mpn_sub_n(r, a, b, (mp_size_t)MP_N64);
+}
+
+uint64_t mp_add_ui(mp_limb_t *r, const mp_limb_t *a, uint64_t b) {
+    return (uint64_t)mpn_add_1(r, a, (mp_size_t)MP_N64, (mp_limb_t)b);
+}
+
+uint64_t mp_sub_ui(mp_limb_t *r, const mp_limb_t *a, uint64_t b) {
+    return (uint64_t)mpn_sub_1(r, a, (mp_size_t)MP_N64, (mp_limb_t)b);
+}
+
+int mp_tstbit(const mp_limb_t *a, size_t bit) {
+    return mpn_tstbit(a, (mp_size_t)MP_N64, (unsigned)bit);
+}
+
+void mp_fdiv_q_2exp(mp_limb_t *r, const mp_limb_t *a, uint32_t k) {
+    mpn_rshift(r, a, (mp_size_t)MP_N64, (unsigned)k);
+}
+
+void mp_shl_2exp(mp_limb_t *r, const mp_limb_t *a, uint32_t k) {
+    mpn_lshift(r, a, (mp_size_t)MP_N64, (unsigned)k);
+}
+
+void mp_shr_2exp(mp_limb_t *r, const mp_limb_t *a, uint32_t k) {
+    mpn_rshift(r, a, (mp_size_t)MP_N64, (unsigned)k);
+}
+
+void mp_export(uint8_t out[32], const mp_limb_t *a) {
+    std::memcpy(out, a, 32);
+}
+
+void mp_export_be(uint8_t out[32], const mp_limb_t *a) {
+    uint8_t tmp[32];
+    mp_export(tmp, a);
+    for (int i = 0; i < 32; i++) out[i] = tmp[31 - i];
+}
+
+void mp_import_be(mp_limb_t *r, const uint8_t in[32]) {
+    for (size_t i = 0; i < (size_t)MP_N64; i++) r[i] = 0;
+    for (int byte = 0; byte < 32; byte++) {
+        int rev = 31 - byte;
+        size_t limb = (size_t)rev / 8;
+        size_t off  = (size_t)rev % 8;
+        r[limb] |= (mp_limb_t)in[byte] << (off * 8);
+    }
+}

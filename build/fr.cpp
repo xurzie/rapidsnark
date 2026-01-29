@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <string>
 #include <stdexcept>
+#include <climits>
 
 static bool initialized = false;
 
@@ -50,18 +51,83 @@ void Fr_toU256(U256 *out, PFrElement pE) {
     out->limb[3] = (uint64_t)tmp.longVal[3];
 }
 
-static inline void load_u256(U256 *out, const FrRawElement in) {
-    out->limb[0] = in[0];
-    out->limb[1] = in[1];
-    out->limb[2] = in[2];
-    out->limb[3] = in[3];
+static inline void fr_q_minus_2(uint8_t out_le[32]) {
+    mp_limb_t t[4] = { (uint64_t)Fr_q.longVal[0], (uint64_t)Fr_q.longVal[1],
+                       (uint64_t)Fr_q.longVal[2], (uint64_t)Fr_q.longVal[3] };
+
+    (void)mp_sub_ui(t, t, 2u);
+    mp_export(out_le, t);
 }
 
-static inline void store_u256(FrRawElement out, const U256 *a) {
-    out[0] = a->limb[0];
-    out[1] = a->limb[1];
-    out[2] = a->limb[2];
-    out[3] = a->limb[3];
+static inline void Fr_toRawNormal(FrRawElement out, PFrElement a) {
+    FrElement tmp;
+    Fr_toNormal(&tmp, a);
+
+    if (tmp.type & Fr_LONG) {
+        out[0] = (uint64_t)tmp.longVal[0];
+        out[1] = (uint64_t)tmp.longVal[1];
+        out[2] = (uint64_t)tmp.longVal[2];
+        out[3] = (uint64_t)tmp.longVal[3];
+        return;
+    }
+
+    U256 mod;
+    Fr_getModulusU256(&mod);
+
+    U256 v;
+    mp_set_sint_mod(&v, (int64_t)tmp.shortVal, &mod);
+
+    out[0] = v.limb[0];
+    out[1] = v.limb[1];
+    out[2] = v.limb[2];
+    out[3] = v.limb[3];
+}
+
+static inline void Fr_fromRawNormal(PFrElement out, const FrRawElement in) {
+    if (in[1] == 0 && in[2] == 0 && in[3] == 0 && in[0] <= (uint64_t)INT_MAX) {
+        out->type = Fr_SHORT;
+        out->shortVal = (int32_t)in[0];
+        return;
+    }
+    out->type = Fr_LONG;
+    out->longVal[0] = (uint64_t)in[0];
+    out->longVal[1] = (uint64_t)in[1];
+    out->longVal[2] = (uint64_t)in[2];
+    out->longVal[3] = (uint64_t)in[3];
+}
+
+static inline int bit_is_set_le(const uint8_t *s, int bit) {
+    return (s[bit >> 3] & (uint8_t)(1u << (bit & 7))) != 0;
+}
+
+static void Fr_rawExpMont(FrRawElement out_mont, const FrRawElement base_mont, const uint8_t *exp_le, unsigned exp_size) {
+    FrRawElement one_norm = {1u, 0u, 0u, 0u};
+    FrRawElement one_mont;
+    Fr_rawToMontgomery(one_mont, one_norm);
+
+    bool oneFound = false;
+    FrRawElement acc;
+    FrRawElement copyBase;
+    Fr_rawCopy(copyBase, base_mont);
+
+    for (int i = (int)exp_size * 8 - 1; i >= 0; i--) {
+        if (!oneFound) {
+            if (!bit_is_set_le(exp_le, i)) continue;
+            Fr_rawCopy(acc, copyBase);
+            oneFound = true;
+            continue;
+        }
+        Fr_rawMSquare(acc, acc);
+        if (bit_is_set_le(exp_le, i)) {
+            Fr_rawMMul(acc, acc, copyBase);
+        }
+    }
+
+    if (!oneFound) {
+        Fr_rawCopy(out_mont, one_mont);
+        return;
+    }
+    Fr_rawCopy(out_mont, acc);
 }
 
 static char *mp_strdup_malloc(const std::string &s) {
@@ -111,66 +177,45 @@ void Fr_mod(PFrElement r, PFrElement a, PFrElement b) {
     Fr_fromU256(r, &rem);
 }
 
-static inline void fr_q_minus_2(uint8_t out[32]) {
-    U256 mod; Fr_getModulusU256(&mod);
-    U256 e;
-    (void)mp_sub_ui(&e, &mod, 2);
-    mp_export(out, &e);
-}
-
 void Fr_pow(PFrElement r, PFrElement a, PFrElement b) {
-    U256 ma, mb;
-    Fr_toU256(&ma, a);
+    U256 mb;
     Fr_toU256(&mb, b);
 
     uint8_t exp_le[32];
     mp_export(exp_le, &mb);
 
     FrRawElement base_norm;
-    store_u256(base_norm, &ma);
+    Fr_toRawNormal(base_norm, a);
 
     FrRawElement base_mont;
-    Fr_rawCopy(base_mont, base_norm);
-    Fr_rawToMontgomery(base_mont, base_mont);
+    Fr_rawToMontgomery(base_mont, base_norm);
 
-    RawFr::Element B{}, R{};
-    Fr_rawCopy(B.v, base_mont);
-
-    RawFr::field.exp(R, B, exp_le, (unsigned)sizeof(exp_le));
+    FrRawElement res_mont;
+    Fr_rawExpMont(res_mont, base_mont, exp_le, (unsigned)sizeof(exp_le));
 
     FrRawElement res_norm;
-    Fr_rawFromMontgomery(res_norm, R.v);
+    Fr_rawFromMontgomery(res_norm, res_mont);
 
-    U256 out;
-    load_u256(&out, res_norm);
-    Fr_fromU256(r, &out);
+    Fr_fromRawNormal(r, res_norm);
 }
 
 void Fr_inv(PFrElement r, PFrElement a) {
-    U256 ma;
-    Fr_toU256(&ma, a);
-
     uint8_t exp_le[32];
     fr_q_minus_2(exp_le);
 
     FrRawElement base_norm;
-    store_u256(base_norm, &ma);
+    Fr_toRawNormal(base_norm, a);
 
     FrRawElement base_mont;
-    Fr_rawCopy(base_mont, base_norm);
-    Fr_rawToMontgomery(base_mont, base_mont);
+    Fr_rawToMontgomery(base_mont, base_norm);
 
-    RawFr::Element B{}, R{};
-    Fr_rawCopy(B.v, base_mont);
-
-    RawFr::field.exp(R, B, exp_le, (unsigned)sizeof(exp_le));
+    FrRawElement res_mont;
+    Fr_rawExpMont(res_mont, base_mont, exp_le, (unsigned)sizeof(exp_le));
 
     FrRawElement res_norm;
-    Fr_rawFromMontgomery(res_norm, R.v);
+    Fr_rawFromMontgomery(res_norm, res_mont);
 
-    U256 out;
-    load_u256(&out, res_norm);
-    Fr_fromU256(r, &out);
+    Fr_fromRawNormal(r, res_norm);
 }
 
 void Fr_div(PFrElement r, PFrElement a, PFrElement b) {

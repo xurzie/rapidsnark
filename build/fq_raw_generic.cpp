@@ -204,54 +204,54 @@ static const U256 Fq_qU256 = {{
 
 void Fq_rawAdd(FqRawElement pRawResult, const FqRawElement pRawA, const FqRawElement pRawB)
 {
-    uint64_t carry = mpn_add_n(pRawResult, pRawA, pRawB, 4);
-    if (carry || mpn_cmp(pRawResult, Fq_qU256.limb, 4) >= 0) {
-        (void)mpn_sub_n(pRawResult, pRawResult, Fq_qU256.limb, 4);
+    uint64_t carry = mp_add(pRawResult, pRawA, pRawB);
+    if (carry || mp_cmp(pRawResult, Fq_qU256.limb) >= 0) {
+        (void)mp_sub(pRawResult, pRawResult, Fq_qU256.limb);
     }
 }
 
 void Fq_rawAddLS(FqRawElement pRawResult, FqRawElement pRawA, uint64_t rawB)
 {
-    uint64_t carry = mpn_add_1(pRawResult, pRawA, 4, rawB);
-    if (carry || mpn_cmp(pRawResult, Fq_qU256.limb, 4) >= 0) {
-        (void)mpn_sub_n(pRawResult, pRawResult, Fq_qU256.limb, 4);
+    uint64_t carry = mp_add_ui(pRawResult, pRawA, rawB);
+    if (carry || mp_cmp(pRawResult, Fq_qU256.limb) >= 0) {
+        (void)mp_sub(pRawResult, pRawResult, Fq_qU256.limb);
     }
 }
 
 void Fq_rawSub(FqRawElement pRawResult, const FqRawElement pRawA, const FqRawElement pRawB)
 {
-    uint64_t borrow = mpn_sub_n(pRawResult, pRawA, pRawB, 4);
+    uint64_t borrow = mp_sub(pRawResult, pRawA, pRawB);
     if (borrow) {
-        (void)mpn_add_n(pRawResult, pRawResult, Fq_qU256.limb, 4);
+        (void)mp_add(pRawResult, pRawResult, Fq_qU256.limb);
     }
 }
 
 void Fq_rawSubRegular(FqRawElement pRawResult, FqRawElement pRawA, FqRawElement pRawB)
 {
-    (void)mpn_sub_n(pRawResult, pRawA, pRawB, 4);
+    (void)mp_sub(pRawResult, pRawA, pRawB);
 }
 
 void Fq_rawSubSL(FqRawElement pRawResult, uint64_t rawA, FqRawElement pRawB)
 {
     const uint64_t a[4] = { rawA, 0, 0, 0 };
-    uint64_t borrow = mpn_sub_n(pRawResult, a, pRawB, 4);
+    uint64_t borrow = mp_sub(pRawResult, a, pRawB);
     if (borrow) {
-        (void)mpn_add_n(pRawResult, pRawResult, Fq_qU256.limb, 4);
+        (void)mp_add(pRawResult, pRawResult, Fq_qU256.limb);
     }
 }
 
 void Fq_rawSubLS(FqRawElement pRawResult, FqRawElement pRawA, uint64_t rawB)
 {
-    uint64_t borrow = mpn_sub_1(pRawResult, pRawA, 4, rawB);
+    uint64_t borrow = mp_sub_ui(pRawResult, pRawA, rawB);
     if (borrow) {
-        (void)mpn_add_n(pRawResult, pRawResult, Fq_qU256.limb, 4);
+        (void)mp_add(pRawResult, pRawResult, Fq_qU256.limb);
     }
 }
 
 void Fq_rawNeg(FqRawElement pRawResult, const FqRawElement pRawA)
 {
-    if (!mpn_zero_p(pRawA, 4)) {
-        (void)mpn_sub_n(pRawResult, Fq_qU256.limb, pRawA, 4);
+    if (!mp_is_zero(pRawA)) {
+        (void)mp_sub(pRawResult, Fq_qU256.limb, pRawA);
     } else {
         pRawResult[0] = pRawResult[1] = pRawResult[2] = pRawResult[3] = 0;
     }
@@ -260,16 +260,16 @@ void Fq_rawNeg(FqRawElement pRawResult, const FqRawElement pRawA)
 void Fq_rawNegLS(FqRawElement pRawResult, FqRawElement pRawA, uint64_t rawB)
 {
     uint64_t t[4];
-    (void)mpn_sub_1(t, Fq_qU256.limb, 4, rawB);    // t = q - rawB
+    (void)mp_sub_ui(t, Fq_qU256.limb, rawB);
 
-    if (mpn_cmp(t, pRawA, 4) >= 0) {
-        (void)mpn_sub_n(pRawResult, t, pRawA, 4);
+    if (mp_cmp(t, pRawA) >= 0) {
+        (void)mp_sub(pRawResult, t, pRawA);
     } else {
         uint64_t tt[4];
-        (void)mpn_add_n(tt, t, Fq_qU256.limb, 4);  // tt = t + q (без переполнения для BN254)
-        (void)mpn_sub_n(pRawResult, tt, pRawA, 4);
-        if (mpn_cmp(pRawResult, Fq_qU256.limb, 4) >= 0) {
-            (void)mpn_sub_n(pRawResult, pRawResult, Fq_qU256.limb, 4);
+        (void)mp_add(tt, t, Fq_qU256.limb);
+        (void)mp_sub(pRawResult, tt, pRawA);
+        if (mp_cmp(pRawResult, Fq_qU256.limb) >= 0) {
+            (void)mp_sub(pRawResult, pRawResult, Fq_qU256.limb);
         }
     }
 }
@@ -312,7 +312,7 @@ int Fq_rawIsZero(const FqRawElement rawA)
 
 int Fq_rawCmp(FqRawElement pRawA, FqRawElement pRawB)
 {
-    return mpn_cmp(pRawA, pRawB, 4);
+    return mp_cmp(pRawA, pRawB);
 }
 
 void Fq_rawSwap(FqRawElement pRawResult, FqRawElement pRawA)
@@ -334,7 +334,7 @@ void Fq_rawCopyS2L(FqRawElement pRawResult, int64_t val)
         tmp[1] = ~0ULL;
         tmp[2] = ~0ULL;
         tmp[3] = ~0ULL;
-        (void)mpn_add_n(pRawResult, tmp, Fq_qU256.limb, 4);
+        (void)mp_add(pRawResult, tmp, Fq_qU256.limb);
         return;
     }
     pRawResult[0] = tmp[0]; pRawResult[1] = tmp[1]; pRawResult[2] = tmp[2]; pRawResult[3] = tmp[3];
@@ -347,8 +347,8 @@ void Fq_rawAnd(FqRawElement pRawResult, FqRawElement pRawA, FqRawElement pRawB)
     pRawResult[2] = pRawA[2] & pRawB[2];
     pRawResult[3] = (pRawA[3] & pRawB[3]) & lboMask;
 
-    if (mpn_cmp(pRawResult, Fq_qU256.limb, 4) >= 0) {
-        (void)mpn_sub_n(pRawResult, pRawResult, Fq_qU256.limb, 4);
+    if (mp_cmp(pRawResult, Fq_qU256.limb) >= 0) {
+        (void)mp_sub(pRawResult, pRawResult, Fq_qU256.limb);
     }
 }
 
@@ -359,8 +359,8 @@ void Fq_rawOr(FqRawElement pRawResult, FqRawElement pRawA, FqRawElement pRawB)
     pRawResult[2] = pRawA[2] | pRawB[2];
     pRawResult[3] = (pRawA[3] | pRawB[3]) & lboMask;
 
-    if (mpn_cmp(pRawResult, Fq_qU256.limb, 4) >= 0) {
-        (void)mpn_sub_n(pRawResult, pRawResult, Fq_qU256.limb, 4);
+    if (mp_cmp(pRawResult, Fq_qU256.limb) >= 0) {
+        (void)mp_sub(pRawResult, pRawResult, Fq_qU256.limb);
     }
 }
 
@@ -371,8 +371,8 @@ void Fq_rawXor(FqRawElement pRawResult, FqRawElement pRawA, FqRawElement pRawB)
     pRawResult[2] = pRawA[2] ^ pRawB[2];
     pRawResult[3] = (pRawA[3] ^ pRawB[3]) & lboMask;
 
-    if (mpn_cmp(pRawResult, Fq_qU256.limb, 4) >= 0) {
-        (void)mpn_sub_n(pRawResult, pRawResult, Fq_qU256.limb, 4);
+    if (mp_cmp(pRawResult, Fq_qU256.limb) >= 0) {
+        (void)mp_sub(pRawResult, pRawResult, Fq_qU256.limb);
     }
 }
 
@@ -384,10 +384,10 @@ void Fq_rawShl(FqRawElement r, FqRawElement a, uint64_t b)
     }
 
     uint64_t tmp[4];
-    (void)mpn_lshift(tmp, a, 4, (unsigned)b);
+    (void)mp_shl_2exp(tmp, a, (uint32_t)b);
     tmp[3] &= lboMask;
-    if (mpn_cmp(tmp, Fq_qU256.limb, 4) >= 0) {
-        (void)mpn_sub_n(tmp, tmp, Fq_qU256.limb, 4);
+    if (mp_cmp(tmp, Fq_qU256.limb) >= 0) {
+        (void)mp_sub(tmp, tmp, Fq_qU256.limb);
     }
     r[0] = tmp[0]; r[1] = tmp[1]; r[2] = tmp[2]; r[3] = tmp[3];
 }
@@ -400,7 +400,7 @@ void Fq_rawShr(FqRawElement r, FqRawElement a, uint64_t b)
     }
 
     uint64_t tmp[4];
-    (void)mpn_rshift(tmp, a, 4, (unsigned)b);
+    (void)mp_shr_2exp(tmp, a, (uint32_t)b);
     r[0] = tmp[0]; r[1] = tmp[1]; r[2] = tmp[2]; r[3] = tmp[3];
 }
 
@@ -411,7 +411,7 @@ void Fq_rawNot(FqRawElement pRawResult, FqRawElement pRawA)
     pRawResult[2] = ~pRawA[2];
     pRawResult[3] = (~pRawA[3]) & lboMask;
 
-    if (mpn_cmp(pRawResult, Fq_qU256.limb, 4) >= 0) {
-        (void)mpn_sub_n(pRawResult, pRawResult, Fq_qU256.limb, 4);
+    if (mp_cmp(pRawResult, Fq_qU256.limb) >= 0) {
+        (void)mp_sub(pRawResult, pRawResult, Fq_qU256.limb);
     }
 }

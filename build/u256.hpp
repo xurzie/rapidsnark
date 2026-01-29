@@ -6,37 +6,18 @@
 #include <string>
 
 using mp_limb_t = uint64_t;
-using mp_size_t = std::size_t;
 
-void      mpn_zero(mp_limb_t *rp, mp_size_t n);
-void      mpn_copyi(mp_limb_t *rp, const mp_limb_t *ap, mp_size_t n);
-int       mpn_zero_p(const mp_limb_t *ap, mp_size_t n);
-int       mpn_cmp(const mp_limb_t *ap, const mp_limb_t *bp, mp_size_t n);
-int       mpn_cmp_1(const mp_limb_t *ap, mp_size_t n, mp_limb_t b);
-mp_limb_t mpn_add_n(mp_limb_t *rp, const mp_limb_t *ap, const mp_limb_t *bp, mp_size_t n);
-mp_limb_t mpn_sub_n(mp_limb_t *rp, const mp_limb_t *ap, const mp_limb_t *bp, mp_size_t n);
-mp_limb_t mpn_add_1(mp_limb_t *rp, const mp_limb_t *ap, mp_size_t n, mp_limb_t b);
-mp_limb_t mpn_sub_1(mp_limb_t *rp, const mp_limb_t *ap, mp_size_t n, mp_limb_t b);
-int       mpn_tstbit(const mp_limb_t *ap, mp_size_t n, unsigned bit);
-void      mpn_rshift(mp_limb_t *rp, const mp_limb_t *ap, mp_size_t n, unsigned k);
-void      mpn_lshift(mp_limb_t *rp, const mp_limb_t *ap, mp_size_t n, unsigned k);
+#ifndef MP_N64
+#define MP_N64 4
+#endif
+
+using mp_uint_t = mp_limb_t[MP_N64];
 
 struct U256 {
-    mp_limb_t limb[4];
+    mp_uint_t limb;
 };
 
-static inline mp_limb_t *mp_limbs(U256 *x) { return x->limb; }
-static inline const mp_limb_t *mp_limbs(const U256 *x) { return x->limb; }
-static inline constexpr mp_size_t mp_nlimbs(const U256 &) { return 4; }
-
-template <std::size_t N>
-static inline mp_limb_t *mp_limbs(mp_limb_t (&a)[N]) { return a; }
-
-template <std::size_t N>
-static inline const mp_limb_t *mp_limbs(const mp_limb_t (&a)[N]) { return a; }
-
-template <std::size_t N>
-static inline constexpr mp_size_t mp_nlimbs(const mp_limb_t (&)[N]) { return N; }
+// U256 API
 
 void mp_set_ui(U256 *r, uint64_t x);
 void mp_copy(U256 *r, const U256 *a);
@@ -52,6 +33,9 @@ uint64_t mp_sub_ui(U256 *r, const U256 *a, uint64_t b);
 
 int  mp_tstbit(const U256 *a, uint32_t bit);
 void mp_fdiv_q_2exp(U256 *r, const U256 *a, uint32_t k);
+void mp_shl_2exp(U256 *r, const U256 *a, uint32_t k);
+void mp_shr_2exp(U256 *r, const U256 *a, uint32_t k);
+
 int  mp_set_str(U256 *r, const char *str, int base);
 void mp_export(uint8_t out[32], const U256 *a);
 
@@ -68,6 +52,27 @@ void mp_import_be(U256 *r, const uint8_t in[32]);
 
 int  mp_divmod(U256 *q, U256 *r, const U256 *num, const U256 *den);
 
-void mp_shl_2exp(U256 *r, const U256 *a, uint32_t k);
+// Limb API
+
+void mp_set_ui(mp_limb_t *r, uint64_t x);
+void mp_copy(mp_limb_t *r, const mp_limb_t *a);
+
+int  mp_cmp(const mp_limb_t *a, const mp_limb_t *b);
+int  mp_cmp_ui(const mp_limb_t *a, uint64_t x);
+int  mp_is_zero(const mp_limb_t *a);
+
+uint64_t mp_add(mp_limb_t *r, const mp_limb_t *a, const mp_limb_t *b);
+uint64_t mp_sub(mp_limb_t *r, const mp_limb_t *a, const mp_limb_t *b);
+uint64_t mp_add_ui(mp_limb_t *r, const mp_limb_t *a, uint64_t b);
+uint64_t mp_sub_ui(mp_limb_t *r, const mp_limb_t *a, uint64_t b);
+
+int  mp_tstbit(const mp_limb_t *a, size_t bit);
+void mp_fdiv_q_2exp(mp_limb_t *r, const mp_limb_t *a, uint32_t k);
+void mp_shl_2exp(mp_limb_t *r, const mp_limb_t *a, uint32_t k);
+void mp_shr_2exp(mp_limb_t *r, const mp_limb_t *a, uint32_t k);
+
+void mp_export(uint8_t out[32], const mp_limb_t *a);
+void mp_export_be(uint8_t out[32], const mp_limb_t *a);
+void mp_import_be(mp_limb_t *r, const uint8_t in[32]);
 
 #endif // U256_HPP
