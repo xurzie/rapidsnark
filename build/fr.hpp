@@ -2,8 +2,7 @@
 #define __FR_H
 
 #include "fr_element.hpp"
-#include "u256.hpp"
-#include <cstdint>
+#include "mp.hpp"
 #include <string>
 
 #ifdef __APPLE__
@@ -200,9 +199,9 @@ void Fr_mod(PFrElement r, PFrElement a, PFrElement b);
 void Fr_inv(PFrElement r, PFrElement a);
 void Fr_div(PFrElement r, PFrElement a, PFrElement b);
 void Fr_pow(PFrElement r, PFrElement a, PFrElement b);
-void Fr_getModulusU256(U256* out);
-void Fr_toU256(U256* out, PFrElement a);
-void Fr_fromU256(PFrElement out, const U256* v);
+void Fr_getModulusU256(mp_limb_t *out);
+void Fr_toU256(mp_limb_t *out, PFrElement a);
+void Fr_fromU256(PFrElement out, const mp_limb_t *v);
 
 class RawFr {
 public:
