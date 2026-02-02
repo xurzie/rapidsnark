@@ -1,6 +1,7 @@
 #ifndef MP_HPP
 #define MP_HPP
 
+#include <cstdint>
 #include <string>
 
 using mp_limb_t = uint64_t;

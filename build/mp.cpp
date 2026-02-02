@@ -1,4 +1,6 @@
 #include "mp.hpp"
+
+#include <cstdint>
 #include <string>
 #include <climits>
 

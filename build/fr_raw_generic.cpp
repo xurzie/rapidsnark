@@ -191,26 +191,26 @@ static uint64_t Fr_rawq[] = {
 static constexpr uint64_t Fr_np   = 0xc2e1f593efffffffULL;
 static constexpr uint64_t lboMask = 0x3fffffffffffffffULL;
 
-static const U256 Fr_qU256 = {{
+static const mp_limb_t Fr_qU256[MP_N64] = {
     0x43e1f593f0000001ULL,
     0x2833e84879b97091ULL,
     0xb85045b68181585dULL,
     0x30644e72e131a029ULL
-}};
+};
 
 void Fr_rawAdd(FrRawElement pRawResult, const FrRawElement pRawA, const FrRawElement pRawB)
 {
     uint64_t carry = mp_add(pRawResult, pRawA, pRawB);
-    if (carry || mp_cmp(pRawResult, Fr_qU256.limb) >= 0) {
-        mp_sub(pRawResult, pRawResult, Fr_qU256.limb);
+    if (carry || mp_cmp(pRawResult, Fr_qU256) >= 0) {
+        mp_sub(pRawResult, pRawResult, Fr_qU256);
     }
 }
 
  void Fr_rawAddLS(FrRawElement pRawResult, FrRawElement pRawA, uint64_t rawB)
  {
     uint64_t carry = mp_add(pRawResult, pRawA, rawB);
-    if (carry || mp_cmp(pRawResult, Fr_qU256.limb) >= 0) {
-        mp_sub(pRawResult, pRawResult, Fr_qU256.limb);
+    if (carry || mp_cmp(pRawResult, Fr_qU256) >= 0) {
+        mp_sub(pRawResult, pRawResult, Fr_qU256);
      }
  }
 
@@ -218,7 +218,7 @@ void Fr_rawSub(FrRawElement pRawResult, const FrRawElement pRawA, const FrRawEle
 {
     uint64_t borrow = mp_sub(pRawResult, pRawA, pRawB);
     if (borrow) {
-        mp_add(pRawResult, pRawResult, Fr_qU256.limb);
+        mp_add(pRawResult, pRawResult, Fr_qU256);
     }
 }
 
@@ -232,7 +232,7 @@ void Fr_rawSubSL(FrRawElement pRawResult, uint64_t rawA, FrRawElement pRawB)
     const uint64_t a[4] = { rawA, 0, 0, 0 };
     uint64_t borrow = mp_sub(pRawResult, a, pRawB);
     if (borrow) {
-        mp_add(pRawResult, pRawResult, Fr_qU256.limb);
+        mp_add(pRawResult, pRawResult, Fr_qU256);
     }
 }
 
@@ -240,14 +240,14 @@ void Fr_rawSubLS(FrRawElement pRawResult, FrRawElement pRawA, uint64_t rawB)
 {
     uint64_t borrow = mp_sub(pRawResult, pRawA, rawB);
     if (borrow) {
-        mp_add(pRawResult, pRawResult, Fr_qU256.limb);
+        mp_add(pRawResult, pRawResult, Fr_qU256);
     }
 }
 
 void Fr_rawNeg(FrRawElement pRawResult, const FrRawElement pRawA)
 {
     if (!mp_is_zero(pRawA)) {
-        mp_sub(pRawResult, Fr_qU256.limb, pRawA);
+        mp_sub(pRawResult, Fr_qU256, pRawA);
     } else {
         pRawResult[0] = pRawResult[1] = pRawResult[2] = pRawResult[3] = 0;
     }
@@ -256,16 +256,16 @@ void Fr_rawNeg(FrRawElement pRawResult, const FrRawElement pRawA)
 void Fr_rawNegLS(FrRawElement pRawResult, FrRawElement pRawA, uint64_t rawB)
 {
     uint64_t t[4];
-    mp_sub(t, Fr_qU256.limb, rawB);
+    mp_sub(t, Fr_qU256, rawB);
 
     if (mp_cmp(t, pRawA) >= 0) {
         mp_sub(pRawResult, t, pRawA);
     } else {
         uint64_t tt[4];
-        mp_add(tt, t, Fr_qU256.limb);
+        mp_add(tt, t, Fr_qU256);
         mp_sub(pRawResult, tt, pRawA);
-        if (mp_cmp(pRawResult, Fr_qU256.limb) >= 0) {
-            mp_sub(pRawResult, pRawResult, Fr_qU256.limb);
+        if (mp_cmp(pRawResult, Fr_qU256) >= 0) {
+            mp_sub(pRawResult, pRawResult, Fr_qU256);
         }
     }
 }
@@ -330,7 +330,7 @@ void Fr_rawCopyS2L(FrRawElement pRawResult, int64_t val)
         tmp[1] = ~0ULL;
         tmp[2] = ~0ULL;
         tmp[3] = ~0ULL;
-        mp_add(pRawResult, tmp, Fr_qU256.limb);
+        mp_add(pRawResult, tmp, Fr_qU256);
         return;
     }
     pRawResult[0] = tmp[0]; pRawResult[1] = tmp[1]; pRawResult[2] = tmp[2]; pRawResult[3] = tmp[3];
@@ -343,8 +343,8 @@ void Fr_rawAnd(FrRawElement pRawResult, FrRawElement pRawA, FrRawElement pRawB)
     pRawResult[2] = pRawA[2] & pRawB[2];
     pRawResult[3] = (pRawA[3] & pRawB[3]) & lboMask;
 
-    if (mp_cmp(pRawResult, Fr_qU256.limb) >= 0) {
-        mp_sub(pRawResult, pRawResult, Fr_qU256.limb);
+    if (mp_cmp(pRawResult, Fr_qU256) >= 0) {
+        mp_sub(pRawResult, pRawResult, Fr_qU256);
     }
 }
 
@@ -355,8 +355,8 @@ void Fr_rawOr(FrRawElement pRawResult, FrRawElement pRawA, FrRawElement pRawB)
     pRawResult[2] = pRawA[2] | pRawB[2];
     pRawResult[3] = (pRawA[3] | pRawB[3]) & lboMask;
 
-    if (mp_cmp(pRawResult, Fr_qU256.limb) >= 0) {
-        mp_sub(pRawResult, pRawResult, Fr_qU256.limb);
+    if (mp_cmp(pRawResult, Fr_qU256) >= 0) {
+        mp_sub(pRawResult, pRawResult, Fr_qU256);
     }
 }
 
@@ -367,8 +367,8 @@ void Fr_rawXor(FrRawElement pRawResult, FrRawElement pRawA, FrRawElement pRawB)
     pRawResult[2] = pRawA[2] ^ pRawB[2];
     pRawResult[3] = (pRawA[3] ^ pRawB[3]) & lboMask;
 
-    if (mp_cmp(pRawResult, Fr_qU256.limb) >= 0) {
-        mp_sub(pRawResult, pRawResult, Fr_qU256.limb);
+    if (mp_cmp(pRawResult, Fr_qU256) >= 0) {
+        mp_sub(pRawResult, pRawResult, Fr_qU256);
     }
 }
 
@@ -381,8 +381,8 @@ void Fr_rawShl(FrRawElement r, FrRawElement a, uint64_t b)
     uint64_t tmp[4];
     mp_shl_2exp(tmp, a, (uint32_t)b);
     tmp[3] &= lboMask;
-    if (mp_cmp(tmp, Fr_qU256.limb) >= 0) {
-        mp_sub(tmp, tmp, Fr_qU256.limb);
+    if (mp_cmp(tmp, Fr_qU256) >= 0) {
+        mp_sub(tmp, tmp, Fr_qU256);
     }
     r[0] = tmp[0]; r[1] = tmp[1]; r[2] = tmp[2]; r[3] = tmp[3];
 }
@@ -405,7 +405,7 @@ void Fr_rawNot(FrRawElement pRawResult, FrRawElement pRawA)
     pRawResult[2] = ~pRawA[2];
     pRawResult[3] = (~pRawA[3]) & lboMask;
 
-    if (mp_cmp(pRawResult, Fr_qU256.limb) >= 0) {
-        mp_sub(pRawResult, pRawResult, Fr_qU256.limb);
+    if (mp_cmp(pRawResult, Fr_qU256) >= 0) {
+        mp_sub(pRawResult, pRawResult, Fr_qU256);
     }
 }
