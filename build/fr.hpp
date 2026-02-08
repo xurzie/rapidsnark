@@ -199,9 +199,8 @@ void Fr_mod(PFrElement r, PFrElement a, PFrElement b);
 void Fr_inv(PFrElement r, PFrElement a);
 void Fr_div(PFrElement r, PFrElement a, PFrElement b);
 void Fr_pow(PFrElement r, PFrElement a, PFrElement b);
-void Fr_getModulusU256(mp_limb_t *out);
-void Fr_toU256(mp_limb_t *out, PFrElement a);
-void Fr_fromU256(PFrElement out, const mp_limb_t *v);
+void Fr_toMP(uint64_t *out, PFrElement a);
+void Fr_fromMP(PFrElement out, const uint64_t *v);
 
 class RawFr {
 public:

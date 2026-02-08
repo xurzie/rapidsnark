@@ -199,9 +199,8 @@ void Fq_mod(PFqElement r, PFqElement a, PFqElement b);
 void Fq_inv(PFqElement r, PFqElement a);
 void Fq_div(PFqElement r, PFqElement a, PFqElement b);
 void Fq_pow(PFqElement r, PFqElement a, PFqElement b);
-void Fq_getModulusU256(mp_limb_t *out);
-void Fq_toU256(mp_limb_t *out, PFqElement a);
-void Fq_fromU256(PFqElement out, const mp_limb_t *v);
+void Fq_toMP(uint64_t *out, PFqElement a);
+void Fq_fromMP(PFqElement out, const uint64_t *v);
 
 class RawFq {
 

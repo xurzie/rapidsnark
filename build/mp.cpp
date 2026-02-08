@@ -3,8 +3,10 @@
 #include <cstdint>
 #include <string>
 #include <climits>
+#include <cctype>
+#include <cstring>
 
-static inline uint64_t add_carry_u64(uint64_t a, uint64_t b, uint64_t c, uint64_t *out) {
+static inline uint64_t add_carry(uint64_t *out, uint64_t a, uint64_t b, uint64_t c) {
 #if defined(__SIZEOF_INT128__)
     __uint128_t t = ( (__uint128_t)a ) + b + c;
     *out = (uint64_t)t;
@@ -19,7 +21,7 @@ static inline uint64_t add_carry_u64(uint64_t a, uint64_t b, uint64_t c, uint64_
 #endif
 }
 
-static inline uint64_t sub_borrow_u64(uint64_t a, uint64_t b, uint64_t c, uint64_t *out) {
+static inline uint64_t sub_borrow(uint64_t *out, uint64_t a, uint64_t b, uint64_t c) {
 #if defined(__SIZEOF_INT128__)
     __int128_t t = ( (__int128_t)a ) - (__int128_t)b - (__int128_t)c;
     *out = (uint64_t)t;
@@ -34,16 +36,22 @@ static inline uint64_t sub_borrow_u64(uint64_t a, uint64_t b, uint64_t c, uint64
 #endif
 }
 
-static inline void mp_zero_4(mp_limb_t *r) {
-    r[0] = r[1] = r[2] = r[3] = 0;
+static inline void mp_zero(uint64_t *r) {
+    std::memset(r, 0, MP_N64 * sizeof(uint64_t));
 }
 
-static inline void mp_copy_4(mp_limb_t *r, const mp_limb_t *a) {
+
+void mp_set(uint64_t *r, uint64_t x) {
+    r[0] = (uint64_t)x;
+    for (int i = 1; i < MP_N64; i++) r[i] = 0;
+}
+
+void mp_copy(uint64_t *r, const uint64_t *a) {
     if (r == a) return;
-    r[0] = a[0]; r[1] = a[1]; r[2] = a[2]; r[3] = a[3];
+    std::memcpy(r, a, MP_N64 * sizeof(uint64_t));
 }
 
-static inline int mp_cmp_4(const mp_limb_t *a, const mp_limb_t *b) {
+int mp_cmp(const uint64_t *a, const uint64_t *b) {
     for (int i = 3; i >= 0; i--) {
         if (a[i] < b[i]) return -1;
         if (a[i] > b[i]) return  1;
@@ -51,21 +59,21 @@ static inline int mp_cmp_4(const mp_limb_t *a, const mp_limb_t *b) {
     return 0;
 }
 
-static inline int mp_is_zero_4(const mp_limb_t *a) {
+int mp_is_zero(const uint64_t *a) {
     return (a[0] | a[1] | a[2] | a[3]) == 0;
 }
 
-static inline void mp_rshift_4(mp_limb_t *r, const mp_limb_t *a, uint32_t k) {
-    if (k >= 256u) { mp_zero_4(r); return; }
-    if (k == 0) { mp_copy_4(r, a); return; }
+void mp_shr(uint64_t *r, const uint64_t *a, uint32_t k) {
+    if (k >= 256u) { mp_zero(r); return; }
+    if (k == 0)    { mp_copy(r, a); return; }
 
     const uint32_t wordShift = k >> 6;
     const uint32_t bitShift  = k & 63u;
 
-    if (wordShift >= 4u) { mp_zero_4(r); return; }
+    if (wordShift >= 4u) { mp_zero(r); return; }
 
     if (bitShift == 0) {
-        for (uint32_t i = 0; i < 4; i++) {
+        for (uint32_t i = 0; i < MP_N64; i++) {
             uint32_t si = i + wordShift;
             r[i] = (si < 4u) ? a[si] : 0;
         }
@@ -73,7 +81,7 @@ static inline void mp_rshift_4(mp_limb_t *r, const mp_limb_t *a, uint32_t k) {
     }
 
     const uint32_t inv = 64u - bitShift;
-    for (uint32_t i = 0; i < 4; i++) {
+    for (uint32_t i = 0; i < MP_N64; i++) {
         uint32_t si0 = i + wordShift;
         uint32_t si1 = si0 + 1;
 
@@ -84,14 +92,14 @@ static inline void mp_rshift_4(mp_limb_t *r, const mp_limb_t *a, uint32_t k) {
     }
 }
 
-static inline void mp_lshift_4(mp_limb_t *r, const mp_limb_t *a, uint32_t k) {
-    if (k >= 256u) { mp_zero_4(r); return; }
-    if (k == 0) { mp_copy_4(r, a); return; }
+void mp_shl(uint64_t *r, const uint64_t *a, uint32_t k) {
+    if (k >= 256u) { mp_zero(r); return; }
+    if (k == 0)    { mp_copy(r, a); return; }
 
     const uint32_t wordShift = k >> 6;
     const uint32_t bitShift  = k & 63u;
 
-    if (wordShift >= 4u) { mp_zero_4(r); return; }
+    if (wordShift >= 4u) { mp_zero(r); return; }
 
     if (bitShift == 0) {
         for (int i = 3; i >= 0; i--) {
@@ -113,82 +121,51 @@ static inline void mp_lshift_4(mp_limb_t *r, const mp_limb_t *a, uint32_t k) {
     }
 }
 
-/* ===== mp.hpp API ===== */
-
-void mp_set_ui(mp_limb_t *r, uint64_t x) {
-    r[0] = (mp_limb_t)x;
-    r[1] = r[2] = r[3] = 0;
-}
-
-void mp_copy(mp_limb_t *r, const mp_limb_t *a) {
-    mp_copy_4(r, a);
-}
-
-int mp_cmp(const mp_limb_t *a, const mp_limb_t *b) {
-    return mp_cmp_4(a, b);
-}
-
-int mp_is_zero(const mp_limb_t *a) {
-    return mp_is_zero_4(a);
-}
-
-uint64_t mp_add(mp_limb_t *r, const mp_limb_t *a, const mp_limb_t *b) {
+uint64_t mp_add(uint64_t *r, const uint64_t *a, const uint64_t *b) {
     uint64_t c = 0;
-    c = add_carry_u64(a[0], b[0], c, &r[0]);
-    c = add_carry_u64(a[1], b[1], c, &r[1]);
-    c = add_carry_u64(a[2], b[2], c, &r[2]);
-    c = add_carry_u64(a[3], b[3], c, &r[3]);
+    c = add_carry(&r[0], a[0], b[0], c);
+    c = add_carry(&r[1], a[1], b[1], c);
+    c = add_carry(&r[2], a[2], b[2], c);
+    c = add_carry(&r[3], a[3], b[3], c);
     return c;
 }
 
-uint64_t mp_sub(mp_limb_t *r, const mp_limb_t *a, const mp_limb_t *b) {
+uint64_t mp_sub(uint64_t *r, const uint64_t *a, const uint64_t *b) {
     uint64_t br = 0;
-    br = sub_borrow_u64(a[0], b[0], br, &r[0]);
-    br = sub_borrow_u64(a[1], b[1], br, &r[1]);
-    br = sub_borrow_u64(a[2], b[2], br, &r[2]);
-    br = sub_borrow_u64(a[3], b[3], br, &r[3]);
+    br = sub_borrow(&r[0], a[0], b[0], br);
+    br = sub_borrow(&r[1], a[1], b[1], br);
+    br = sub_borrow(&r[2], a[2], b[2], br);
+    br = sub_borrow(&r[3], a[3], b[3], br);
     return br;
 }
 
-uint64_t mp_add(mp_limb_t *r, const mp_limb_t *a, uint64_t b) {
+uint64_t mp_add_1(uint64_t *r, const uint64_t *a, uint64_t b) {
     uint64_t c = 0;
-    c = add_carry_u64(a[0], b, 0, &r[0]);
-    c = add_carry_u64(a[1], 0, c, &r[1]);
-    c = add_carry_u64(a[2], 0, c, &r[2]);
-    c = add_carry_u64(a[3], 0, c, &r[3]);
+    c = add_carry(&r[0], a[0], b, 0);
+    c = add_carry(&r[1], a[1], 0, c);
+    c = add_carry(&r[2], a[2], 0, c);
+    c = add_carry(&r[3], a[3], 0, c);
     return c;
 }
 
-uint64_t mp_sub(mp_limb_t *r, const mp_limb_t *a, uint64_t b) {
+uint64_t mp_sub_1(uint64_t *r, const uint64_t *a, uint64_t b) {
     uint64_t br = 0;
-    br = sub_borrow_u64(a[0], b, 0, &r[0]);
-    br = sub_borrow_u64(a[1], 0, br, &r[1]);
-    br = sub_borrow_u64(a[2], 0, br, &r[2]);
-    br = sub_borrow_u64(a[3], 0, br, &r[3]);
+    br = sub_borrow(&r[0], a[0], b,  0);
+    br = sub_borrow(&r[1], a[1], 0, br);
+    br = sub_borrow(&r[2], a[2], 0, br);
+    br = sub_borrow(&r[3], a[3], 0, br);
     return br;
 }
 
-int mp_tstbit(const mp_limb_t *a, size_t bit) {
+int mp_tstbit(const uint64_t *a, size_t bit) {
     if (bit >= 256u) return 0;
     const size_t w = bit >> 6;
     const size_t s = bit & 63u;
     return (int)((a[w] >> s) & 1ULL);
 }
 
-void mp_fdiv_q_2exp(mp_limb_t *r, const mp_limb_t *a, uint32_t k) {
-    mp_rshift_4(r, a, k);
-}
-
-void mp_shl_2exp(mp_limb_t *r, const mp_limb_t *a, uint32_t k) {
-    mp_lshift_4(r, a, k);
-}
-
-void mp_shr_2exp(mp_limb_t *r, const mp_limb_t *a, uint32_t k) {
-    mp_rshift_4(r, a, k);
-}
-
-void mp_export(uint8_t *out, const mp_limb_t *a) {
-    for (int i = 0; i < 4; i++) {
+void mp_export(uint8_t *out, const uint64_t *a) {
+    for (int i = 0; i < MP_N64; i++) {
         uint64_t w = (uint64_t)a[i];
         for (int j = 0; j < 8; j++) {
             out[i * 8 + j] = (uint8_t)(w & 0xFFu);
@@ -197,60 +174,54 @@ void mp_export(uint8_t *out, const mp_limb_t *a) {
     }
 }
 
-void mp_export_be(uint8_t *out, const mp_limb_t *a) {
-    for (int i = 0; i < 32; i++) {
+void mp_export_be(uint8_t *out, const uint64_t *a) {
+    for (int i = 0; i < MP_N; i++) {
         uint8_t byte = (uint8_t)((a[i / 8] >> (8 * (i % 8))) & 0xFFu);
-        out[31 - i] = byte;
+        out[MP_N - 1 - i] = byte;
     }
 }
 
-void mp_import_be(mp_limb_t *r, const uint8_t in[32]) {
-    mp_zero_4(r);
-    for (int i = 0; i < 32; i++) {
-        uint8_t byte = in[31 - i];
-        r[i / 8] |= (mp_limb_t)byte << (8 * (i % 8));
+void mp_import_be(uint64_t *r, const uint8_t *a) {
+    mp_zero(r);
+    for (int i = 0; i < MP_N; i++) {
+        const uint8_t byte = a[MP_N - 1 - i];
+        r[i / 8] |= (uint64_t)byte << (8 * (i % 8));
     }
-}
-
-/* ===== String parsing/formatting ===== */
-
-static inline int is_space(char c) {
-    return (c == ' ' || c == '\t' || c == '\n' || c == '\r');
 }
 
 #if defined(__SIZEOF_INT128__)
-static inline uint64_t mp_mul_small_dec_4(mp_limb_t *x, uint32_t m) {
+static inline uint64_t mp_mul_small_dec(uint64_t *x, uint32_t m) {
     __uint128_t carry = 0;
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < MP_N64; i++) {
         __uint128_t t = (__uint128_t)x[i] * (uint64_t)m + carry;
-        x[i] = (mp_limb_t)t;
+        x[i] = (uint64_t)t;
         carry = t >> 64;
     }
     return (uint64_t)carry;
 }
 
-static inline uint64_t mp_add_small_dec_4(mp_limb_t *x, uint32_t add) {
+static inline uint64_t mp_add_small_dec(uint64_t *x, uint32_t add) {
     __uint128_t t = (__uint128_t)x[0] + (uint64_t)add;
-    x[0] = (mp_limb_t)t;
+    x[0] = (uint64_t)t;
     uint64_t c = (uint64_t)(t >> 64);
 
-    for (int i = 1; i < 4 && c; i++) {
+    for (int i = 1; i < MP_N64 && c; i++) {
         __uint128_t ti = (__uint128_t)x[i] + c;
-        x[i] = (mp_limb_t)ti;
+        x[i] = (uint64_t)ti;
         c = (uint64_t)(ti >> 64);
     }
     return c;
 }
 #endif
 
-int mp_set_str(mp_limb_t *r, const char *str, int base) {
+int mp_set(uint64_t *r, const char *str, int base) {
     if (!r || !str) return -1;
     if (base == 0) base = 10;
     if (base != 10) return -1;
 
-    mp_set_ui(r, 0);
+    mp_zero(r);
 
-    while (*str && is_space(*str)) str++;
+    while (*str && std::isspace((unsigned char)*str)) str++;
     if (*str == '+') str++;
     if (*str == '-') return -1;
 
@@ -263,32 +234,32 @@ int mp_set_str(mp_limb_t *r, const char *str, int base) {
         return -1;
 #else
         uint32_t digit = (uint32_t)(*str - '0');
-        if (mp_mul_small_dec_4(r, 10) != 0) return -1;
-        if (mp_add_small_dec_4(r, digit) != 0) return -1;
+        if (mp_mul_small_dec(r, 10) != 0) return -1;
+        if (mp_add_small_dec(r, digit) != 0) return -1;
 #endif
     }
 
     if (!any) return -1;
 
-    while (*str && is_space(*str)) str++;
+    while (*str && std::isspace((unsigned char)*str)) str++;
     if (*str != '\0') return -1;
 
     return 0;
 }
 
 #if defined(__SIZEOF_INT128__)
-static inline uint32_t mp_div_ui_4(mp_limb_t *q, const mp_limb_t *a, uint32_t base) {
+static inline uint32_t mp_div(uint64_t *q, const uint64_t *a, uint32_t base) {
     uint64_t rem = 0;
     for (int i = 3; i >= 0; i--) {
         __uint128_t cur = (((__uint128_t)rem) << 64) | (__uint128_t)a[i];
-        q[i] = (mp_limb_t)(cur / base);
+        q[i] = (uint64_t)(cur / base);
         rem  = (uint64_t)(cur % base);
     }
     return (uint32_t)rem;
 }
 #endif
 
-std::string mp_get_str(const mp_limb_t *a, int base) {
+std::string mp_get_str(const uint64_t *a, int base) {
     if (!a) return std::string();
     if (base == 0) base = 10;
     if (base < 2 || base > 16) return std::string();
@@ -298,15 +269,15 @@ std::string mp_get_str(const mp_limb_t *a, int base) {
 #if !defined(__SIZEOF_INT128__)
     return std::string();
 #else
-    mp_limb_t v[4]; mp_copy_4(v, a);
+    uint64_t v[4]; mp_copy(v, a);
     std::string out;
 
-    while (!mp_is_zero_4(v)) {
-        mp_limb_t q[4];
-        uint32_t rem = mp_div_ui_4(q, v, (uint32_t)base);
+    while (!mp_is_zero(v)) {
+        uint64_t q[4];
+        uint32_t rem = mp_div(q, v, (uint32_t)base);
         char digit = (rem < 10) ? (char)('0' + rem) : (char)('a' + (rem - 10));
         out.push_back(digit);
-        mp_copy_4(v, q);
+        mp_copy(v, q);
     }
 
     for (size_t i = 0, j = out.size() - 1; i < j; i++, j--) {
@@ -316,102 +287,101 @@ std::string mp_get_str(const mp_limb_t *a, int base) {
 #endif
 }
 
-/* ===== Mod helpers ===== */
-
-int mp_fits_sint(const mp_limb_t *a) {
+int mp_fits_int32(const uint64_t *a) {
     if (!a) return 0;
     if (a[1] || a[2] || a[3]) return 0;
     return a[0] <= (uint64_t)INT_MAX;
 }
 
-void mp_add_mod(mp_limb_t *r, const mp_limb_t *a, const mp_limb_t *b, const mp_limb_t *mod) {
+void mp_add_mod(uint64_t *r, const uint64_t *a, const uint64_t *b, const uint64_t *mod) {
     uint64_t carry = mp_add(r, a, b);
-    if (carry || mp_cmp_4(r, mod) >= 0) {
+    if (carry || mp_cmp(r, mod) >= 0) {
         mp_sub(r, r, mod);
     }
 }
 
-void mp_mul_small_mod(mp_limb_t *r, const mp_limb_t *a, uint32_t m, const mp_limb_t *mod) {
-    mp_limb_t res[4]; mp_set_ui(res, 0);
-    mp_limb_t cur[4]; mp_copy_4(cur, a);
+void mp_mul_mod(uint64_t *r, const uint64_t *a, uint32_t m, const uint64_t *mod) {
+    uint64_t res[4]; mp_set(res, 0);
+    uint64_t cur[4]; mp_copy(cur, a);
 
     uint32_t k = m;
     while (k) {
         if (k & 1u) {
-            mp_limb_t tmp[4];
+            uint64_t tmp[4];
             mp_add_mod(tmp, res, cur, mod);
-            mp_copy_4(res, tmp);
+            mp_copy(res, tmp);
         }
         k >>= 1u;
         if (k) {
-            mp_limb_t tmp[4];
+            uint64_t tmp[4];
             mp_add_mod(tmp, cur, cur, mod);
-            mp_copy_4(cur, tmp);
+            mp_copy(cur, tmp);
         }
     }
 
-    mp_copy_4(r, res);
+    mp_copy(r, res);
 }
 
-static inline int digit_val(char c) {
-    if (c >= '0' && c <= '9') return (int)(c - '0');
-    if (c >= 'a' && c <= 'f') return 10 + (int)(c - 'a');
-    if (c >= 'A' && c <= 'F') return 10 + (int)(c - 'A');
-    return -1;
-}
-
-int mp_set_str_mod(mp_limb_t *r, const char *str, int base, const mp_limb_t *mod) {
+int mp_set_mod(uint64_t *r, const char *str, int base, const uint64_t *mod) {
     if (!r || !str || !mod) return -1;
     if (base == 0) base = 10;
     if (base < 2 || base > 16) return -1;
 
-    while (*str && is_space(*str)) str++;
+    while (*str && std::isspace((unsigned char)*str)) str++;
 
     bool neg = false;
     if (*str == '+') str++;
     else if (*str == '-') { neg = true; str++; }
 
-    mp_limb_t acc[4]; mp_set_ui(acc, 0);
+    uint64_t acc[4]; mp_set(acc, 0);
     bool any = false;
 
     for (; *str; str++) {
-        if (is_space(*str)) break;
+        if (std::isspace((unsigned char)*str)) break;
 
-        int d = digit_val(*str);
-        if (d < 0 || d >= base) return -1;
+        unsigned char uc = (unsigned char)*str;
 
-        mp_limb_t t1[4];
-        mp_mul_small_mod(t1, acc, (uint32_t)base, mod);
+        if (!std::isxdigit(uc)) return -1;
 
-        mp_limb_t dv[4]; mp_set_ui(dv, (uint64_t)d);
+        int d;
+        if (std::isdigit(uc)) {
+            d = (int)(uc - (unsigned char)'0');
+        } else {
+            d = (int)(std::tolower(uc) - (unsigned char)'a') + 10;
+        }
 
-        mp_limb_t t2[4];
+        if (d >= base) return -1;
+
+        uint64_t t1[4];
+        mp_mul_mod(t1, acc, (uint32_t)base, mod);
+
+        uint64_t dv[4]; mp_set(dv, (uint64_t)d);
+
+        uint64_t t2[4];
         mp_add_mod(t2, t1, dv, mod);
 
-        mp_copy_4(acc, t2);
+        mp_copy(acc, t2);
         any = true;
     }
 
     if (!any) return -1;
 
-    while (*str && is_space(*str)) str++;
+    while (*str && std::isspace((unsigned char)*str)) str++;
     if (*str != '\0') return -1;
 
-    if (neg && !mp_is_zero_4(acc)) {
-        mp_limb_t tmp[4];
+    if (neg && !mp_is_zero(acc)) {
+        uint64_t tmp[4];
         mp_sub(tmp, mod, acc);
-        mp_copy_4(acc, tmp);
+        mp_copy(acc, tmp);
     }
 
-    mp_copy_4(r, acc);
+    mp_copy(r, acc);
     return 0;
 }
 
-/* ===== Division ===== */
-
 static inline int mp_clz64(uint64_t x) { return x ? __builtin_clzll(x) : 64; }
 
-static inline int mp_num_limbs_4(const mp_limb_t *a) {
+static inline int mp_num_limbs(const uint64_t *a) {
     if (a[3]) return 4;
     if (a[2]) return 3;
     if (a[1]) return 2;
@@ -459,21 +429,21 @@ static inline uint64_t add_back_knuth(uint64_t *u, const uint64_t *v, int n) {
 }
 #endif
 
-int mp_divmod(mp_limb_t *q, mp_limb_t *r, const mp_limb_t *num, const mp_limb_t *den) {
+int mp_divmod(uint64_t *q, uint64_t *r, const uint64_t *num, const uint64_t *den) {
     if (!q || !r || !num || !den) return -1;
-    if (mp_is_zero_4(den)) return -1;
+    if (mp_is_zero(den)) return -1;
 
-    if (mp_cmp_4(num, den) < 0) {
-        mp_set_ui(q, 0);
-        mp_copy_4(r, num);
+    if (mp_cmp(num, den) < 0) {
+        mp_set(q, 0);
+        mp_copy(r, num);
         return 0;
     }
 
 #if !defined(__SIZEOF_INT128__)
     return -1;
 #else
-    int m = mp_num_limbs_4(num);
-    int n = mp_num_limbs_4(den);
+    int m = mp_num_limbs(num);
+    int n = mp_num_limbs(den);
 
     if (n == 1) {
         uint64_t v = (uint64_t)den[0];
@@ -481,12 +451,12 @@ int mp_divmod(mp_limb_t *q, mp_limb_t *r, const mp_limb_t *num, const mp_limb_t 
         uint64_t qq[4] = {0, 0, 0, 0};
         uint64_t rem = div_1word(qq, u, 4, v);
 
-        q[0] = (mp_limb_t)qq[0];
-        q[1] = (mp_limb_t)qq[1];
-        q[2] = (mp_limb_t)qq[2];
-        q[3] = (mp_limb_t)qq[3];
+        q[0] = (uint64_t)qq[0];
+        q[1] = (uint64_t)qq[1];
+        q[2] = (uint64_t)qq[2];
+        q[3] = (uint64_t)qq[3];
 
-        mp_set_ui(r, rem);
+        mp_set(r, rem);
         return 0;
     }
 
@@ -499,7 +469,7 @@ int mp_divmod(mp_limb_t *q, mp_limb_t *r, const mp_limb_t *num, const mp_limb_t 
 
     if (s == 0) {
         for (int i = 0; i < n; i++) vnorm[i] = vraw[i];
-        for (int i = n; i < 4; i++) vnorm[i] = 0;
+        for (int i = n; i < MP_N64; i++) vnorm[i] = 0;
         for (int i = 0; i < 5; i++) unorm[i] = uraw[i];
     } else {
         uint64_t carry = 0;
@@ -508,7 +478,7 @@ int mp_divmod(mp_limb_t *q, mp_limb_t *r, const mp_limb_t *num, const mp_limb_t 
             vnorm[i] = (x << s) | carry;
             carry = x >> (64 - s);
         }
-        for (int i = n; i < 4; i++) vnorm[i] = 0;
+        for (int i = n; i < MP_N64; i++) vnorm[i] = 0;
 
         carry = 0;
         for (int i = 0; i < 5; i++) {
@@ -559,26 +529,26 @@ int mp_divmod(mp_limb_t *q, mp_limb_t *r, const mp_limb_t *num, const mp_limb_t 
         }
     }
 
-    q[0] = (mp_limb_t)qlimb[0];
-    q[1] = (mp_limb_t)qlimb[1];
-    q[2] = (mp_limb_t)qlimb[2];
-    q[3] = (mp_limb_t)qlimb[3];
+    q[0] = (uint64_t)qlimb[0];
+    q[1] = (uint64_t)qlimb[1];
+    q[2] = (uint64_t)qlimb[2];
+    q[3] = (uint64_t)qlimb[3];
 
-    r[0] = (mp_limb_t)rlimb[0];
-    r[1] = (mp_limb_t)rlimb[1];
-    r[2] = (mp_limb_t)rlimb[2];
-    r[3] = (mp_limb_t)rlimb[3];
+    r[0] = (uint64_t)rlimb[0];
+    r[1] = (uint64_t)rlimb[1];
+    r[2] = (uint64_t)rlimb[2];
+    r[3] = (uint64_t)rlimb[3];
 
     return 0;
 #endif
 }
 
-void mp_set_sint_mod(mp_limb_t *r, int64_t x, const mp_limb_t *mod) {
+void mp_set_mod(uint64_t *r, int64_t x, const uint64_t *mod) {
     if (x >= 0) {
-        mp_set_ui(r, (uint64_t)x);
-        if (mp_cmp_4(r, mod) >= 0) {
-            mp_limb_t q[4], rem[4];
-            if (mp_divmod(q, rem, r, mod) == 0) mp_copy_4(r, rem);
+        mp_set(r, (uint64_t)x);
+        if (mp_cmp(r, mod) >= 0) {
+            uint64_t q[4], rem[4];
+            if (mp_divmod(q, rem, r, mod) == 0) mp_copy(r, rem);
         }
         return;
     }
@@ -589,16 +559,127 @@ void mp_set_sint_mod(mp_limb_t *r, int64_t x, const mp_limb_t *mod) {
     uint64_t absv = (uint64_t)(-(uint64_t)x);
 #endif
 
-    mp_limb_t a[4]; mp_set_ui(a, absv);
+    uint64_t a[4]; mp_set(a, absv);
 
-    if (mp_is_zero_4(a)) { mp_set_ui(r, 0); return; }
+    if (mp_is_zero(a)) { mp_zero(r); return; }
 
-    if (mp_cmp_4(a, mod) >= 0) {
-        mp_limb_t q[4], rem[4];
-        if (mp_divmod(q, rem, a, mod) == 0) mp_copy_4(a, rem);
+    if (mp_cmp(a, mod) >= 0) {
+        uint64_t q[4], rem[4];
+        if (mp_divmod(q, rem, a, mod) == 0) mp_copy(a, rem);
     }
 
-    if (mp_is_zero_4(a)) { mp_set_ui(r, 0); return; }
+    if (mp_is_zero(a)) { mp_zero(r); return; }
 
     mp_sub(r, mod, a);
 }
+
+
+uint64_t mp_mul_1(uint64_t *r, const uint64_t *a, uint64_t m) {
+#if defined(__SIZEOF_INT128__)
+    __uint128_t carry = 0;
+    for (int i = 0; i < MP_N64; i++) {
+        __uint128_t t = (__uint128_t)a[i] * (__uint128_t)m + carry;
+        r[i] = (uint64_t)t;
+        carry = t >> 64;
+    }
+    return (uint64_t)carry;
+#else
+    uint64_t carry = 0;
+    for (int i = 0; i < MP_N64; i++) {
+        uint64_t a0 = (uint32_t)a[i];
+        uint64_t a1 = a[i] >> MP_N;
+        uint64_t m0 = (uint32_t)m;
+        uint64_t m1 = m >> MP_N;
+
+        uint64_t p00 = a0 * m0;
+        uint64_t p01 = a0 * m1;
+        uint64_t p10 = a1 * m0;
+        uint64_t p11 = a1 * m1;
+
+        uint64_t lo = p00 + (p01 << MP_N) + (p10 << MP_N);
+        uint64_t hi = p11 + (p01 >> MP_N) + (p10 >> MP_N);
+
+        hi += (lo < p00);
+
+        uint64_t out = lo + carry;
+        hi += (out < lo);
+
+        r[i] = out;
+        carry = hi;
+    }
+    return carry;
+#endif
+}
+
+uint64_t mp_addmul_1(uint64_t *r, const uint64_t *a, uint64_t m) {
+#if defined(__SIZEOF_INT128__)
+    __uint128_t carry = 0;
+    for (int i = 0; i < MP_N64; i++) {
+        __uint128_t prod = (__uint128_t)a[i] * (__uint128_t)m;
+        __uint128_t t = (__uint128_t)r[i] + prod + carry;
+        r[i] = (uint64_t)t;
+        carry = t >> 64;
+    }
+    return (uint64_t)carry;
+#else
+    uint64_t tmp[MP_N64];
+    uint64_t c = mp_mul_1(tmp, a, m);
+    uint64_t carry = mp_add(r, r, tmp);
+    return (c || carry) ? 1u : 0u;
+#endif
+}
+
+uint64_t mp_lshift(uint64_t *r, const uint64_t *a, unsigned int cnt) {
+    if (cnt == 0) { if (r != a) mp_copy(r, a); return 0; }
+    uint64_t carry = 0;
+    unsigned int rcnt = 64u - cnt;
+    for (int i = 0; i < MP_N64; i++) {
+        uint64_t x = a[i];
+        r[i] = (x << cnt) | carry;
+        carry = (rcnt == 64u) ? 0 : (x >> rcnt);
+    }
+    return carry;
+}
+
+uint64_t mp_rshift(uint64_t *r, const uint64_t *a, unsigned int cnt) {
+    if (cnt == 0) { if (r != a) mp_copy(r, a); return 0; }
+    uint64_t carry = 0;
+    unsigned int lcnt = 64u - cnt;
+    for (int i = MP_N64 - 1; i >= 0; i--) {
+        uint64_t x = a[i];
+        r[i] = (x >> cnt) | carry;
+        carry = (lcnt == 64u) ? 0 : (x << lcnt);
+    }
+    return carry;
+}
+
+void mp_and(uint64_t *r, const uint64_t *a, const uint64_t *b) {
+    for (int i = 0; i < MP_N64; i++) r[i] = a[i] & b[i];
+}
+void mp_ior(uint64_t *r, const uint64_t *a, const uint64_t *b) {
+    for (int i = 0; i < MP_N64; i++) r[i] = a[i] | b[i];
+}
+void mp_xor(uint64_t *r, const uint64_t *a, const uint64_t *b) {
+    for (int i = 0; i < MP_N64; i++) r[i] = a[i] ^ b[i];
+}
+void mp_com(uint64_t *r, const uint64_t *a) {
+    for (int i = 0; i < MP_N64; i++) r[i] = ~a[i];
+}
+
+
+
+uint64_t mp_add(uint64_t *rp, const uint64_t *ap, size_t an, const uint64_t *bp, size_t bn) {
+    size_t n = (an > bn) ? an : bn;
+    uint64_t carry = 0;
+    for (size_t i = 0; i < n; i++) {
+        uint64_t a = (i < an) ? ap[i] : 0;
+        uint64_t b = (i < bn) ? bp[i] : 0;
+        carry = add_carry(&rp[i], a, b, carry);
+    }
+    return carry;
+}
+
+
+uint64_t mp_add(uint64_t *r, const uint64_t *a, uint64_t b) { return mp_add_1(r, a, b); }
+
+uint64_t mp_sub(uint64_t *r, const uint64_t *a, uint64_t b) { return mp_sub_1(r, a, b); }
