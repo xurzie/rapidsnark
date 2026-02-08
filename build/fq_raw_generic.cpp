@@ -1,4 +1,5 @@
 #include "fq_element.hpp"
+#include "mp.hpp"
 #include <cstring>
 
 static uint64_t     Fq_rawq[] = {0x3c208c16d87cfd47,0x97816a916871ca8d,0xb85045b68181585d,0x30644e72e131a029, 0};
