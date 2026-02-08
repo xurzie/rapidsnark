@@ -3,7 +3,7 @@
 #include <cstring>
 
 static uint64_t     Fq_rawq[] = {0x3c208c16d87cfd47,0x97816a916871ca8d,0xb85045b68181585d,0x30644e72e131a029, 0};
-static uint64_t     Fq_np     = {0x87d20782e4866389};
+static const uint64_t Fq_np   =  0x87d20782e4866389ULL;
 static uint64_t     lboMask   =  0x3fffffffffffffff;
 
 
@@ -105,7 +105,7 @@ int Fq_rawIsEq(const FqRawElement pRawA, const FqRawElement pRawB)
 
 void Fq_rawMMul(FqRawElement pRawResult, const FqRawElement pRawA, const FqRawElement pRawB)
 {
-    const mp_size_t  N = Fq_N64+1;
+    constexpr size_t N = Fq_N64 + 1;
     const uint64_t  *mq = Fq_rawq;
 
     uint64_t  np0;
@@ -148,7 +148,7 @@ void Fq_rawMMul(FqRawElement pRawResult, const FqRawElement pRawA, const FqRawEl
 
 void Fq_rawMMul1(FqRawElement pRawResult, const FqRawElement pRawA, uint64_t pRawB)
 {
-    const mp_size_t  N = Fq_N64+1;
+    constexpr size_t N = Fq_N64 + 1;
     const uint64_t  *mq = Fq_rawq;
 
     uint64_t  np0;
@@ -185,7 +185,7 @@ void Fq_rawMMul1(FqRawElement pRawResult, const FqRawElement pRawA, uint64_t pRa
 
 void Fq_rawFromMontgomery(FqRawElement pRawResult, const FqRawElement &pRawA)
 {
-    const mp_size_t  N = Fq_N64+1;
+    constexpr size_t N = Fq_N64 + 1;
     const uint64_t  *mq = Fq_rawq;
 
     uint64_t  np0;
