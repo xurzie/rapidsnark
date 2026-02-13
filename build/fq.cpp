@@ -25,13 +25,6 @@ void Fq_toMP(uint64_t *out, PFqElement pE) {
     mp_copy(out, tmp.longVal);
 }
 
-static inline void fq_q_minus_2(uint8_t out[MP_N]) {
-    mp_uint_t t;
-    mp_copy(t, Fq_q.longVal);
-    mp_sub(t, t, 2u);
-    mp_export(out, t);
-}
-
 static inline void Fq_toRawNormal(FqRawElement out, PFqElement a) {
     FqElement tmp;
     Fq_toNormal(&tmp, a);
@@ -52,41 +45,6 @@ static inline void Fq_fromRawNormal(PFqElement out, const FqRawElement in) {
     }
     out->type = Fq_LONG;
     mp_copy(out->longVal, in);
-}
-
-static inline int bit_is_set(const uint8_t *s, int bit) {
-    return (s[bit >> 3] & (uint8_t)(1u << (bit & 7))) != 0;
-}
-
-static void Fq_rawExpMont(FqRawElement out_mont, const FqRawElement base_mont, const uint8_t *exp, unsigned exp_size) {
-    FqRawElement one_norm;
-    mp_set(one_norm, 1u);
-    FqRawElement one_mont;
-    Fq_rawToMontgomery(one_mont, one_norm);
-
-    bool oneFound = false;
-    FqRawElement acc;
-    FqRawElement copyBase;
-    Fq_rawCopy(copyBase, base_mont);
-
-    for (int i = (int)exp_size * 8 - 1; i >= 0; i--) {
-        if (!oneFound) {
-            if (!bit_is_set(exp, i)) continue;
-            Fq_rawCopy(acc, copyBase);
-            oneFound = true;
-            continue;
-        }
-        Fq_rawMSquare(acc, acc);
-        if (bit_is_set(exp, i)) {
-            Fq_rawMMul(acc, acc, copyBase);
-        }
-    }
-
-    if (!oneFound) {
-        Fq_rawCopy(out_mont, one_mont);
-        return;
-    }
-    Fq_rawCopy(out_mont, acc);
 }
 
 void Fq_str2element(PFqElement pE, char const *s, uint base) {

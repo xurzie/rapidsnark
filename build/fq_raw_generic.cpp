@@ -306,7 +306,7 @@ void Fq_rawXor(FqRawElement pRawResult, FqRawElement pRawA, FqRawElement pRawB)
 
 void Fq_rawShl(FqRawElement r, FqRawElement a, uint64_t b)
 {
-    mp_shl(r, a, (uint32_t)b);   // делает и word-shift, и bit-shift, и k>=256 -> 0
+    mp_shl(r, a, (uint32_t)b);
 
     r[3] &= lboMask;
 
@@ -316,7 +316,7 @@ void Fq_rawShl(FqRawElement r, FqRawElement a, uint64_t b)
 
 void Fq_rawShr(FqRawElement r, FqRawElement a, uint64_t b)
 {
-    mp_shr(r, a, (uint32_t)b);   // k>=256 -> 0
+    mp_shr(r, a, (uint32_t)b);
 }
 
 void Fq_rawNot(FqRawElement pRawResult, FqRawElement pRawA)

@@ -27,13 +27,6 @@ void Fr_toMP(uint64_t *out, PFrElement pE) {
     mp_copy(out, tmp.longVal);
 }
 
-static inline void fr_q_minus_2(uint8_t out_le[MP_N]) {
-    mp_uint_t t;
-    mp_copy(t, Fr_q.longVal);
-    mp_sub(t, t, 2u);
-    mp_export(out_le, t);
-}
-
 static inline void Fr_toRawNormal(FrRawElement out, PFrElement a) {
     FrElement tmp;
     Fr_toNormal(&tmp, a);
@@ -54,41 +47,6 @@ static inline void Fr_fromRawNormal(PFrElement out, const FrRawElement in) {
     }
     out->type = Fr_LONG;
     mp_copy(out->longVal, in);
-}
-
-static inline int bit_is_set_le(const uint8_t *s, int bit) {
-    return (s[bit >> 3] & (uint8_t)(1u << (bit & 7))) != 0;
-}
-
-static void Fr_rawExpMont(FrRawElement out_mont, const FrRawElement base_mont, const uint8_t *exp, unsigned exp_size) {
-    FrRawElement one_norm;
-    mp_set(one_norm, 1u);
-    FrRawElement one_mont;
-    Fr_rawToMontgomery(one_mont, one_norm);
-
-    bool oneFound = false;
-    FrRawElement acc;
-    FrRawElement copyBase;
-    Fr_rawCopy(copyBase, base_mont);
-
-    for (int i = (int)exp_size * 8 - 1; i >= 0; i--) {
-        if (!oneFound) {
-            if (!bit_is_set_le(exp, i)) continue;
-            Fr_rawCopy(acc, copyBase);
-            oneFound = true;
-            continue;
-        }
-        Fr_rawMSquare(acc, acc);
-        if (bit_is_set_le(exp, i)) {
-            Fr_rawMMul(acc, acc, copyBase);
-        }
-    }
-
-    if (!oneFound) {
-        Fr_rawCopy(out_mont, one_mont);
-        return;
-    }
-    Fr_rawCopy(out_mont, acc);
 }
 
 void Fr_str2element(PFrElement pE, char const* s, uint base) {
