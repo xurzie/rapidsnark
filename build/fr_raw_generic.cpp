@@ -115,28 +115,28 @@ void Fr_rawMMul(FrRawElement pRawResult, const FrRawElement pRawA, const FrRawEl
     uint64_t  product2[N] = {0};
     uint64_t  product3[N] = {0};
 
-    product0[4] = mp_mul_1(product0, pRawB, pRawA[0]);
+    product0[4] = mp_mul(product0, pRawB, pRawA[0]);
 
     np0 = Fr_np * product0[0];
-    product1[1] = mp_addmul_1(product0, mq, np0);
+    product1[1] = mp_addmul(product0, mq, np0);
 
-    product1[4] = mp_addmul_1(product1, pRawB, pRawA[1]);
+    product1[4] = mp_addmul(product1, pRawB, pRawA[1]);
     mp_add(product1, product1, N, product0+1, N-1);
 
     np0 = Fr_np * product1[0];
-    product2[1] = mp_addmul_1(product1, mq, np0);
+    product2[1] = mp_addmul(product1, mq, np0);
 
-    product2[4] = mp_addmul_1(product2, pRawB, pRawA[2]);
+    product2[4] = mp_addmul(product2, pRawB, pRawA[2]);
     mp_add(product2, product2, N, product1+1, N-1);
 
     np0 = Fr_np * product2[0];
-    product3[1] = mp_addmul_1(product2, mq, np0);
+    product3[1] = mp_addmul(product2, mq, np0);
 
-    product3[4] = mp_addmul_1(product3, pRawB, pRawA[3]);
+    product3[4] = mp_addmul(product3, pRawB, pRawA[3]);
     mp_add(product3, product3, N, product2+1, N-1);
 
     np0 = Fr_np * product3[0];
-    mp_addmul_1(product3, mq, np0);
+    mp_addmul(product3, mq, np0);
 
     mp_copy(pRawResult, product3+1);
 
@@ -158,22 +158,22 @@ void Fr_rawMMul1(FrRawElement pRawResult, const FrRawElement pRawA, uint64_t pRa
     uint64_t  product2[N] = {0};
     uint64_t  product3[N] = {0};
 
-    product0[4] = mp_mul_1(product0, pRawA, pRawB);
+    product0[4] = mp_mul(product0, pRawA, pRawB);
 
     np0 = Fr_np * product0[0];
-    product1[1] = mp_addmul_1(product0, mq, np0);
+    product1[1] = mp_addmul(product0, mq, np0);
     mp_add(product1, product1, N, product0+1, N-1);
 
     np0 = Fr_np * product1[0];
-    product2[1] = mp_addmul_1(product1, mq, np0);
+    product2[1] = mp_addmul(product1, mq, np0);
     mp_add(product2, product2, N, product1+1, N-1);
 
     np0 = Fr_np * product2[0];
-    product3[1] = mp_addmul_1(product2, mq, np0);
+    product3[1] = mp_addmul(product2, mq, np0);
     mp_add(product3, product3, N, product2+1, N-1);
 
     np0 = Fr_np * product3[0];
-    mp_addmul_1(product3, mq, np0);
+    mp_addmul(product3, mq, np0);
 
     mp_copy(pRawResult, product3+1);
 
@@ -198,19 +198,19 @@ void Fr_rawFromMontgomery(FrRawElement pRawResult, const FrRawElement &pRawA)
     mp_copy(product0, pRawA); product0[4] = 0;
 
     np0 = Fr_np * product0[0];
-    product1[1] = mp_addmul_1(product0, mq, np0);
+    product1[1] = mp_addmul(product0, mq, np0);
     mp_add(product1, product1, N, product0+1, N-1);
 
     np0 = Fr_np * product1[0];
-    product2[1] = mp_addmul_1(product1, mq, np0);
+    product2[1] = mp_addmul(product1, mq, np0);
     mp_add(product2, product2, N, product1+1, N-1);
 
     np0 = Fr_np * product2[0];
-    product3[1] = mp_addmul_1(product2, mq, np0);
+    product3[1] = mp_addmul(product2, mq, np0);
     mp_add(product3, product3, N, product2+1, N-1);
 
     np0 = Fr_np * product3[0];
-    mp_addmul_1(product3, mq, np0);
+    mp_addmul(product3, mq, np0);
 
     mp_copy(pRawResult, product3+1);
 
