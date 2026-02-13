@@ -19,7 +19,7 @@ void Fq_rawAdd(FqRawElement pRawResult, const FqRawElement pRawA, const FqRawEle
 
 void Fq_rawAddLS(FqRawElement pRawResult, FqRawElement pRawA, uint64_t rawB)
 {
-    uint64_t carry = mp_add_1(pRawResult, pRawA, rawB);
+    uint64_t carry = mp_add(pRawResult, pRawA, rawB);
 
     if(carry || mp_cmp(pRawResult, Fq_rawq) >= 0)
     {
@@ -56,7 +56,7 @@ void Fq_rawSubSL(FqRawElement pRawResult, uint64_t rawA, FqRawElement pRawB)
 
 void Fq_rawSubLS(FqRawElement pRawResult, FqRawElement pRawA, uint64_t rawB)
 {
-    uint64_t carry = mp_sub_1(pRawResult, pRawA, rawB);
+    uint64_t carry = mp_sub(pRawResult, pRawA, rawB);
 
     if(carry)
     {
@@ -81,7 +81,7 @@ void Fq_rawNeg(FqRawElement pRawResult, const FqRawElement pRawA)
 //  Substracts a long element and a short element form 0
 void Fq_rawNegLS(FqRawElement pRawResult, FqRawElement pRawA, uint64_t rawB)
 {
-    uint64_t carry1 = mp_sub_1(pRawResult, Fq_rawq, rawB);
+    uint64_t carry1 = mp_sub(pRawResult, Fq_rawq, rawB);
     uint64_t carry2 = mp_sub(pRawResult, pRawResult, pRawA);
 
     if (carry1 || carry2)
@@ -115,28 +115,28 @@ void Fq_rawMMul(FqRawElement pRawResult, const FqRawElement pRawA, const FqRawEl
     uint64_t  product2[N] = {0};
     uint64_t  product3[N] = {0};
 
-    product0[4] = mp_mul_1(product0, pRawB, pRawA[0]);
+    product0[4] = mp_mul(product0, pRawB, pRawA[0]);
 
     np0 = Fq_np * product0[0];
-    product1[1] = mp_addmul_1(product0, mq, np0);
+    product1[1] = mp_addmul(product0, mq, np0);
 
-    product1[4] = mp_addmul_1(product1, pRawB, pRawA[1]);
+    product1[4] = mp_addmul(product1, pRawB, pRawA[1]);
     mp_add(product1, product1, N, product0+1, N-1);
 
     np0 = Fq_np * product1[0];
-    product2[1] = mp_addmul_1(product1, mq, np0);
+    product2[1] = mp_addmul(product1, mq, np0);
 
-    product2[4] = mp_addmul_1(product2, pRawB, pRawA[2]);
+    product2[4] = mp_addmul(product2, pRawB, pRawA[2]);
     mp_add(product2, product2, N, product1+1, N-1);
 
     np0 = Fq_np * product2[0];
-    product3[1] = mp_addmul_1(product2, mq, np0);
+    product3[1] = mp_addmul(product2, mq, np0);
 
-    product3[4] = mp_addmul_1(product3, pRawB, pRawA[3]);
+    product3[4] = mp_addmul(product3, pRawB, pRawA[3]);
     mp_add(product3, product3, N, product2+1, N-1);
 
     np0 = Fq_np * product3[0];
-    mp_addmul_1(product3, mq, np0);
+    mp_addmul(product3, mq, np0);
 
     mp_copy(pRawResult, product3+1);
 
@@ -158,22 +158,22 @@ void Fq_rawMMul1(FqRawElement pRawResult, const FqRawElement pRawA, uint64_t pRa
     uint64_t  product2[N] = {0};
     uint64_t  product3[N] = {0};
 
-    product0[4] = mp_mul_1(product0, pRawA, pRawB);
+    product0[4] = mp_mul(product0, pRawA, pRawB);
 
     np0 = Fq_np * product0[0];
-    product1[1] = mp_addmul_1(product0, mq, np0);
+    product1[1] = mp_addmul(product0, mq, np0);
     mp_add(product1, product1, N, product0+1, N-1);
 
     np0 = Fq_np * product1[0];
-    product2[1] = mp_addmul_1(product1, mq, np0);
+    product2[1] = mp_addmul(product1, mq, np0);
     mp_add(product2, product2, N, product1+1, N-1);
 
     np0 = Fq_np * product2[0];
-    product3[1] = mp_addmul_1(product2, mq, np0);
+    product3[1] = mp_addmul(product2, mq, np0);
     mp_add(product3, product3, N, product2+1, N-1);
 
     np0 = Fq_np * product3[0];
-    mp_addmul_1(product3, mq, np0);
+    mp_addmul(product3, mq, np0);
 
     mp_copy(pRawResult, product3+1);
 
@@ -198,19 +198,19 @@ void Fq_rawFromMontgomery(FqRawElement pRawResult, const FqRawElement &pRawA)
     mp_copy(product0, pRawA); product0[4] = 0;
 
     np0 = Fq_np * product0[0];
-    product1[1] = mp_addmul_1(product0, mq, np0);
+    product1[1] = mp_addmul(product0, mq, np0);
     mp_add(product1, product1, N, product0+1, N-1);
 
     np0 = Fq_np * product1[0];
-    product2[1] = mp_addmul_1(product1, mq, np0);
+    product2[1] = mp_addmul(product1, mq, np0);
     mp_add(product2, product2, N, product1+1, N-1);
 
     np0 = Fq_np * product2[0];
-    product3[1] = mp_addmul_1(product2, mq, np0);
+    product3[1] = mp_addmul(product2, mq, np0);
     mp_add(product3, product3, N, product2+1, N-1);
 
     np0 = Fq_np * product3[0];
-    mp_addmul_1(product3, mq, np0);
+    mp_addmul(product3, mq, np0);
 
     mp_copy(pRawResult, product3+1);
 
@@ -282,7 +282,7 @@ void Fq_rawAnd(FqRawElement pRawResult, FqRawElement pRawA, FqRawElement pRawB)
 
 void Fq_rawOr(FqRawElement pRawResult, FqRawElement pRawA, FqRawElement pRawB)
 {
-    mp_ior(pRawResult, pRawA, pRawB);
+    mp_or(pRawResult, pRawA, pRawB);
 
     pRawResult[3] &= lboMask;
 
@@ -306,44 +306,22 @@ void Fq_rawXor(FqRawElement pRawResult, FqRawElement pRawA, FqRawElement pRawB)
 
 void Fq_rawShl(FqRawElement r, FqRawElement a, uint64_t b)
 {
-    uint64_t bit_shift  = b % 64;
-    uint64_t word_shift = b / 64;
-    uint64_t word_count = Fq_N64 - word_shift;
-
-    mp_copy(r + word_shift, a);
-    std::memset(r, 0, word_shift * sizeof(uint64_t));
-
-    if (bit_shift)
-    {
-        mp_lshift(r, r, bit_shift);
-    }
+    mp_shl(r, a, (uint32_t)b);   // делает и word-shift, и bit-shift, и k>=256 -> 0
 
     r[3] &= lboMask;
 
     if (mp_cmp(r, Fq_rawq) >= 0)
-    {
         mp_sub(r, r, Fq_rawq);
-    }
 }
 
 void Fq_rawShr(FqRawElement r, FqRawElement a, uint64_t b)
 {
-    const uint64_t bit_shift  = b % 64;
-    const uint64_t word_shift = b / 64;
-    const uint64_t word_count = Fq_N64 - word_shift;
-
-    mp_copy(r, a + word_shift);
-    std::memset(r + word_count, 0, word_shift * sizeof(uint64_t));
-
-    if (bit_shift)
-    {
-        mp_rshift(r, r, bit_shift);
-    }
+    mp_shr(r, a, (uint32_t)b);   // k>=256 -> 0
 }
 
 void Fq_rawNot(FqRawElement pRawResult, FqRawElement pRawA)
 {
-    mp_com(pRawResult, pRawA);
+    mp_not(pRawResult, pRawA);
 
     pRawResult[3] &= lboMask;
 

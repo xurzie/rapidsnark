@@ -5,14 +5,6 @@
 #include <stdexcept>
 #include <climits>
 
-static bool initialized = false;
-
-static bool Fq_init() {
-    if (initialized) return false;
-    initialized = true;
-    return true;
-}
-
 void Fq_fromMP(PFqElement pE, const uint64_t *v) {
     if (mp_fits_int32(v)) {
         pE->type = Fq_SHORT;
@@ -20,35 +12,35 @@ void Fq_fromMP(PFqElement pE, const uint64_t *v) {
         return;
     }
     pE->type = Fq_LONG;
-    mp_copy((uint64_t*)pE->longVal, v);
+    mp_copy(pE->longVal, v);
 }
 
 void Fq_toMP(uint64_t *out, PFqElement pE) {
     FqElement tmp;
     Fq_toNormal(&tmp, pE);
     if (!(tmp.type & Fq_LONG)) {
-        mp_set_mod(out, (int64_t)tmp.shortVal, (const uint64_t*)Fq_q.longVal);
+        mp_set_mod(out, (int64_t)tmp.shortVal, Fq_q.longVal);
         return;
     }
-    mp_copy(out, (const uint64_t*)tmp.longVal);
+    mp_copy(out, tmp.longVal);
 }
 
-static inline void fq_q_minus_2(uint8_t out_le[MP_N]) {
+static inline void fq_q_minus_2(uint8_t out[MP_N]) {
     mp_uint_t t;
-    mp_copy(t, (const uint64_t*)Fq_q.longVal);
+    mp_copy(t, Fq_q.longVal);
     mp_sub(t, t, 2u);
-    mp_export(out_le, t);
+    mp_export(out, t);
 }
 
 static inline void Fq_toRawNormal(FqRawElement out, PFqElement a) {
     FqElement tmp;
     Fq_toNormal(&tmp, a);
     if (tmp.type & Fq_LONG) {
-        mp_copy(out, (const uint64_t*)tmp.longVal);
+        mp_copy(out, tmp.longVal);
         return;
     }
     mp_uint_t v;
-    mp_set_mod(v, (int64_t)tmp.shortVal, (const uint64_t*)Fq_q.longVal);
+    mp_set_mod(v, (int64_t)tmp.shortVal, Fq_q.longVal);
     mp_copy(out, v);
 }
 
@@ -59,14 +51,14 @@ static inline void Fq_fromRawNormal(PFqElement out, const FqRawElement in) {
         return;
     }
     out->type = Fq_LONG;
-    mp_copy((uint64_t*)out->longVal, in);
+    mp_copy(out->longVal, in);
 }
 
-static inline int bit_is_set_le(const uint8_t *s, int bit) {
+static inline int bit_is_set(const uint8_t *s, int bit) {
     return (s[bit >> 3] & (uint8_t)(1u << (bit & 7))) != 0;
 }
 
-static void Fq_rawExpMont(FqRawElement out_mont, const FqRawElement base_mont, const uint8_t *exp_le, unsigned exp_size) {
+static void Fq_rawExpMont(FqRawElement out_mont, const FqRawElement base_mont, const uint8_t *exp, unsigned exp_size) {
     FqRawElement one_norm;
     mp_set(one_norm, 1u);
     FqRawElement one_mont;
@@ -79,13 +71,13 @@ static void Fq_rawExpMont(FqRawElement out_mont, const FqRawElement base_mont, c
 
     for (int i = (int)exp_size * 8 - 1; i >= 0; i--) {
         if (!oneFound) {
-            if (!bit_is_set_le(exp_le, i)) continue;
+            if (!bit_is_set(exp, i)) continue;
             Fq_rawCopy(acc, copyBase);
             oneFound = true;
             continue;
         }
         Fq_rawMSquare(acc, acc);
-        if (bit_is_set_le(exp_le, i)) {
+        if (bit_is_set(exp, i)) {
             Fq_rawMMul(acc, acc, copyBase);
         }
     }
@@ -97,19 +89,18 @@ static void Fq_rawExpMont(FqRawElement out_mont, const FqRawElement base_mont, c
     Fq_rawCopy(out_mont, acc);
 }
 
-static char *mp_strdup_malloc(const std::string &s) {
-    char *p = (char*)std::malloc(s.size() + 1);
-    if (!p) return nullptr;
-    std::memcpy(p, s.c_str(), s.size() + 1);
-    return p;
-}
-
 void Fq_str2element(PFqElement pE, char const *s, uint base) {
     mp_uint_t v;
-    if (mp_set_mod(v, s, (int)base, (const uint64_t*)Fq_q.longVal) != 0) {
+    if (!mp_set_mod(v, s, base, Fq_q.longVal)) {
         mp_set(v, 0);
     }
     Fq_fromMP(pE, v);
+}
+
+std::string Fq_element2str(PFqElement pE, uint32_t base) {
+    mp_uint_t v;
+    Fq_toMP(v, pE);
+    return mp_get_str(v, base);
 }
 
 void Fq_idiv(PFqElement r, PFqElement a, PFqElement b) {
@@ -140,39 +131,24 @@ void Fq_pow(PFqElement r, PFqElement a, PFqElement b) {
     mp_uint_t mb;
     Fq_toMP(mb, b);
 
-    uint8_t exp_le[MP_N];
-    mp_export(exp_le, mb);
+    uint8_t exp[MP_N];
+    mp_export(exp, mb);
 
     FqRawElement base_norm;
     Fq_toRawNormal(base_norm, a);
 
-    FqRawElement base_mont;
-    Fq_rawToMontgomery(base_mont, base_norm);
-
-    FqRawElement res_mont;
-    Fq_rawExpMont(res_mont, base_mont, exp_le, (unsigned)sizeof(exp_le));
-
     FqRawElement res_norm;
-    Fq_rawFromMontgomery(res_norm, res_mont);
+    mp_powm(res_norm, base_norm, exp, (unsigned)sizeof(exp), Fq_q.longVal);
 
     Fq_fromRawNormal(r, res_norm);
 }
 
 void Fq_inv(PFqElement r, PFqElement a) {
-    uint8_t exp_le[MP_N];
-    fq_q_minus_2(exp_le);
-
     FqRawElement base_norm;
     Fq_toRawNormal(base_norm, a);
 
-    FqRawElement base_mont;
-    Fq_rawToMontgomery(base_mont, base_norm);
-
-    FqRawElement res_mont;
-    Fq_rawExpMont(res_mont, base_mont, exp_le, (unsigned)sizeof(exp_le));
-
     FqRawElement res_norm;
-    Fq_rawFromMontgomery(res_norm, res_mont);
+    mp_invert(res_norm, base_norm, Fq_q.longVal);
 
     Fq_fromRawNormal(r, res_norm);
 }
@@ -192,7 +168,6 @@ void Fq_longErr() {
 }
 
 RawFq::RawFq() {
-    Fq_init();
     set(fZero, 0);
     set(fOne, 1);
     neg(fNegOne, fOne);
@@ -201,17 +176,26 @@ RawFq::RawFq() {
 RawFq::~RawFq() {}
 
 void RawFq::fromString(Element& r, const std::string& s, uint32_t radix) {
-    mp_uint_t v;
-    if (mp_set_mod(v, s.c_str(), (int)radix, (const uint64_t*)Fq_q.longVal) != 0) {
-        mp_set(v, 0);
+    if (!mp_set_mod(r.v, s.c_str(), radix, Fq_q.longVal)) {
+        mp_set(r.v, 0);
     }
-    mp_copy(r.v, v);
     Fq_rawToMontgomery(r.v, r.v);
 }
 
 void RawFq::fromUI(Element& r, unsigned long int v) {
-    mp_set(r.v, (uint64_t)v);
+    mp_set(r.v, v);
     Fq_rawToMontgomery(r.v, r.v);
+}
+
+void RawFq::toMP(mp_uint_t r, const Element &a) {
+    FqRawElement tmp;
+    Fq_rawFromMontgomery(tmp, a.v);
+    mp_copy(r, tmp);
+}
+
+void RawFq::fromMP(Element &a, const mp_uint_t r) {
+    mp_copy(a.v, r);
+    Fq_rawToMontgomery(a.v, a.v);
 }
 
 RawFq::Element RawFq::set(int value) {
@@ -221,7 +205,7 @@ RawFq::Element RawFq::set(int value) {
 }
 
 void RawFq::set(Element& r, int value) {
-    mp_set_mod(r.v, (int64_t)value, (const uint64_t*)Fq_q.longVal);
+    mp_set_mod(r.v, (int64_t)value, Fq_q.longVal);
     Fq_rawToMontgomery(r.v, r.v);
 }
 
@@ -234,9 +218,13 @@ std::string RawFq::toString(const Element& a, uint32_t radix) {
 }
 
 void RawFq::inv(Element& r, const Element& a) {
-    uint8_t exp_le[MP_N];
-    fq_q_minus_2(exp_le);
-    exp(r, a, exp_le, (unsigned)sizeof(exp_le));
+    mp_uint_t an;
+    toMP(an, a);
+
+    mp_uint_t invn;
+    mp_invert(invn, an, Fq_q.longVal);
+
+    fromMP(r, invn);
 }
 
 void RawFq::div(Element& r, const Element& a, const Element& b) {
@@ -289,5 +277,4 @@ int RawFq::fromRprBE(Element& element, const uint8_t* data, int bytes) {
     return need;
 }
 
-static bool init = Fq_init();
 RawFq RawFq::field;

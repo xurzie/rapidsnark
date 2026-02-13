@@ -19,7 +19,7 @@ void Fr_rawAdd(FrRawElement pRawResult, const FrRawElement pRawA, const FrRawEle
 
 void Fr_rawAddLS(FrRawElement pRawResult, FrRawElement pRawA, uint64_t rawB)
 {
-    uint64_t carry = mp_add_1(pRawResult, pRawA, rawB);
+    uint64_t carry = mp_add(pRawResult, pRawA, rawB);
 
     if(carry || mp_cmp(pRawResult, Fr_rawq) >= 0)
     {
@@ -56,7 +56,7 @@ void Fr_rawSubSL(FrRawElement pRawResult, uint64_t rawA, FrRawElement pRawB)
 
 void Fr_rawSubLS(FrRawElement pRawResult, FrRawElement pRawA, uint64_t rawB)
 {
-    uint64_t carry = mp_sub_1(pRawResult, pRawA, rawB);
+    uint64_t carry = mp_sub(pRawResult, pRawA, rawB);
 
     if(carry)
     {
@@ -81,7 +81,7 @@ void Fr_rawNeg(FrRawElement pRawResult, const FrRawElement pRawA)
 //  Substracts a long element and a short element form 0
 void Fr_rawNegLS(FrRawElement pRawResult, FrRawElement pRawA, uint64_t rawB)
 {
-    uint64_t carry1 = mp_sub_1(pRawResult, Fr_rawq, rawB);
+    uint64_t carry1 = mp_sub(pRawResult, Fr_rawq, rawB);
     uint64_t carry2 = mp_sub(pRawResult, pRawResult, pRawA);
 
     if (carry1 || carry2)
@@ -281,7 +281,7 @@ void Fr_rawAnd(FrRawElement pRawResult, FrRawElement pRawA, FrRawElement pRawB)
 
 void Fr_rawOr(FrRawElement pRawResult, FrRawElement pRawA, FrRawElement pRawB)
 {
-    mp_ior(pRawResult, pRawA, pRawB);
+    mp_or(pRawResult, pRawA, pRawB);
 
     pRawResult[3] &= lboMask;
 
@@ -305,44 +305,22 @@ void Fr_rawXor(FrRawElement pRawResult, FrRawElement pRawA, FrRawElement pRawB)
 
 void Fr_rawShl(FrRawElement r, FrRawElement a, uint64_t b)
 {
-    uint64_t bit_shift  = b % 64;
-    uint64_t word_shift = b / 64;
-    uint64_t word_count = Fr_N64 - word_shift;
-
-    mp_copy(r + word_shift, a);
-    std::memset(r, 0, word_shift * sizeof(uint64_t));
-
-    if (bit_shift)
-    {
-        mp_lshift(r, r, bit_shift);
-    }
+    mp_shl(r, a, (uint32_t)b);
 
     r[3] &= lboMask;
 
     if (mp_cmp(r, Fr_rawq) >= 0)
-    {
         mp_sub(r, r, Fr_rawq);
-    }
 }
 
 void Fr_rawShr(FrRawElement r, FrRawElement a, uint64_t b)
 {
-    const uint64_t bit_shift  = b % 64;
-    const uint64_t word_shift = b / 64;
-    const uint64_t word_count = Fr_N64 - word_shift;
-
-    mp_copy(r, a + word_shift);
-    std::memset(r + word_count, 0, word_shift * sizeof(uint64_t));
-
-    if (bit_shift)
-    {
-        mp_rshift(r, r, bit_shift);
-    }
+    mp_shr(r, a, (uint32_t)b);
 }
 
 void Fr_rawNot(FrRawElement pRawResult, FrRawElement pRawA)
 {
-    mp_com(pRawResult, pRawA);
+    mp_not(pRawResult, pRawA);
 
     pRawResult[3] &= lboMask;
 

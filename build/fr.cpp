@@ -6,14 +6,6 @@
 #include <stdexcept>
 #include <climits>
 
-static bool initialized = false;
-
-static bool Fr_init() {
-    if (initialized) return false;
-    initialized = true;
-    return true;
-}
-
 void Fr_fromMP(PFrElement pE, const uint64_t *v) {
     if (mp_fits_int32(v)) {
         pE->type = Fr_SHORT;
@@ -21,7 +13,7 @@ void Fr_fromMP(PFrElement pE, const uint64_t *v) {
         return;
     }
     pE->type = Fr_LONG;
-    mp_copy((uint64_t*)pE->longVal, v);
+    mp_copy(pE->longVal, v);
 }
 
 void Fr_toMP(uint64_t *out, PFrElement pE) {
@@ -29,15 +21,15 @@ void Fr_toMP(uint64_t *out, PFrElement pE) {
     Fr_toNormal(&tmp, pE);
 
     if (!(tmp.type & Fr_LONG)) {
-        mp_set_mod(out, (int64_t)tmp.shortVal, (const uint64_t*)Fr_q.longVal);
+        mp_set_mod(out, (int64_t)tmp.shortVal, Fr_q.longVal);
         return;
     }
-    mp_copy(out, (const uint64_t*)tmp.longVal);
+    mp_copy(out, tmp.longVal);
 }
 
 static inline void fr_q_minus_2(uint8_t out_le[MP_N]) {
     mp_uint_t t;
-    mp_copy(t, (const uint64_t*)Fr_q.longVal);
+    mp_copy(t, Fr_q.longVal);
     mp_sub(t, t, 2u);
     mp_export(out_le, t);
 }
@@ -46,11 +38,11 @@ static inline void Fr_toRawNormal(FrRawElement out, PFrElement a) {
     FrElement tmp;
     Fr_toNormal(&tmp, a);
     if (tmp.type & Fr_LONG) {
-        mp_copy(out, (const uint64_t*)tmp.longVal);
+        mp_copy(out, tmp.longVal);
         return;
     }
     mp_uint_t v;
-    mp_set_mod(v, (int64_t)tmp.shortVal, (const uint64_t*)Fr_q.longVal);
+    mp_set_mod(v, (int64_t)tmp.shortVal, Fr_q.longVal);
     mp_copy(out, v);
 }
 
@@ -61,14 +53,14 @@ static inline void Fr_fromRawNormal(PFrElement out, const FrRawElement in) {
         return;
     }
     out->type = Fr_LONG;
-    mp_copy((uint64_t*)out->longVal, in);
+    mp_copy(out->longVal, in);
 }
 
 static inline int bit_is_set_le(const uint8_t *s, int bit) {
     return (s[bit >> 3] & (uint8_t)(1u << (bit & 7))) != 0;
 }
 
-static void Fr_rawExpMont(FrRawElement out_mont, const FrRawElement base_mont, const uint8_t *exp_le, unsigned exp_size) {
+static void Fr_rawExpMont(FrRawElement out_mont, const FrRawElement base_mont, const uint8_t *exp, unsigned exp_size) {
     FrRawElement one_norm;
     mp_set(one_norm, 1u);
     FrRawElement one_mont;
@@ -81,13 +73,13 @@ static void Fr_rawExpMont(FrRawElement out_mont, const FrRawElement base_mont, c
 
     for (int i = (int)exp_size * 8 - 1; i >= 0; i--) {
         if (!oneFound) {
-            if (!bit_is_set_le(exp_le, i)) continue;
+            if (!bit_is_set_le(exp, i)) continue;
             Fr_rawCopy(acc, copyBase);
             oneFound = true;
             continue;
         }
         Fr_rawMSquare(acc, acc);
-        if (bit_is_set_le(exp_le, i)) {
+        if (bit_is_set_le(exp, i)) {
             Fr_rawMMul(acc, acc, copyBase);
         }
     }
@@ -99,25 +91,18 @@ static void Fr_rawExpMont(FrRawElement out_mont, const FrRawElement base_mont, c
     Fr_rawCopy(out_mont, acc);
 }
 
-static char *mp_strdup_malloc(const std::string &s) {
-    char *p = (char*)std::malloc(s.size() + 1);
-    if (!p) return nullptr;
-    std::memcpy(p, s.c_str(), s.size() + 1);
-    return p;
-}
-
 void Fr_str2element(PFrElement pE, char const* s, uint base) {
     mp_uint_t v;
-    if (mp_set_mod(v, s, (int)base, (const uint64_t*)Fr_q.longVal) != 0) {
+    if (!mp_set_mod(v, s, base, Fr_q.longVal)) {
         mp_set(v, 0);
     }
     Fr_fromMP(pE, v);
 }
 
-char *Fr_element2str(PFrElement pE) {
+std::string Fr_element2str(PFrElement pE, uint32_t base) {
     mp_uint_t v;
     Fr_toMP(v, pE);
-    return mp_strdup_malloc(mp_get_str(v, 10));
+    return mp_get_str(v, base);
 }
 
 void Fr_idiv(PFrElement r, PFrElement a, PFrElement b) {
@@ -148,39 +133,24 @@ void Fr_pow(PFrElement r, PFrElement a, PFrElement b) {
     mp_uint_t mb;
     Fr_toMP(mb, b);
 
-    uint8_t exp_le[MP_N];
-    mp_export(exp_le, mb);
+    uint8_t exp[MP_N];
+    mp_export(exp, mb);
 
     FrRawElement base_norm;
     Fr_toRawNormal(base_norm, a);
 
-    FrRawElement base_mont;
-    Fr_rawToMontgomery(base_mont, base_norm);
-
-    FrRawElement res_mont;
-    Fr_rawExpMont(res_mont, base_mont, exp_le, (unsigned)sizeof(exp_le));
-
     FrRawElement res_norm;
-    Fr_rawFromMontgomery(res_norm, res_mont);
+    mp_powm(res_norm, base_norm, exp, (unsigned)sizeof(exp), Fr_q.longVal);
 
     Fr_fromRawNormal(r, res_norm);
 }
 
 void Fr_inv(PFrElement r, PFrElement a) {
-    uint8_t exp_le[MP_N];
-    fr_q_minus_2(exp_le);
-
     FrRawElement base_norm;
     Fr_toRawNormal(base_norm, a);
 
-    FrRawElement base_mont;
-    Fr_rawToMontgomery(base_mont, base_norm);
-
-    FrRawElement res_mont;
-    Fr_rawExpMont(res_mont, base_mont, exp_le, (unsigned)sizeof(exp_le));
-
     FrRawElement res_norm;
-    Fr_rawFromMontgomery(res_norm, res_mont);
+    mp_invert(res_norm, base_norm, Fr_q.longVal);
 
     Fr_fromRawNormal(r, res_norm);
 }
@@ -200,7 +170,6 @@ void Fr_longErr() {
 }
 
 RawFr::RawFr() {
-    Fr_init();
     set(fZero, 0);
     set(fOne, 1);
     neg(fNegOne, fOne);
@@ -209,17 +178,26 @@ RawFr::RawFr() {
 RawFr::~RawFr() {}
 
 void RawFr::fromString(Element& r, const std::string& s, uint32_t radix) {
-    mp_uint_t v;
-    if (mp_set_mod(v, s.c_str(), (int)radix, (const uint64_t*)Fr_q.longVal) != 0) {
-        mp_set(v, 0);
+    if (!mp_set_mod(r.v, s.c_str(), radix, Fr_q.longVal)) {
+        mp_set(r.v, 0);
     }
-    mp_copy(r.v, v);
     Fr_rawToMontgomery(r.v, r.v);
 }
 
 void RawFr::fromUI(Element& r, unsigned long int v) {
     mp_set(r.v, (uint64_t)v);
     Fr_rawToMontgomery(r.v, r.v);
+}
+
+void RawFr::toMP(mp_uint_t r, const Element &a) {
+    FrRawElement tmp;
+    Fr_rawFromMontgomery(tmp, a.v);
+    mp_copy(r, tmp);
+}
+
+void RawFr::fromMP(Element &a, const mp_uint_t r) {
+    mp_copy(a.v, r);
+    Fr_rawToMontgomery(a.v, a.v);
 }
 
 RawFr::Element RawFr::set(int value) {
@@ -229,7 +207,7 @@ RawFr::Element RawFr::set(int value) {
 }
 
 void RawFr::set(Element& r, int value) {
-    mp_set_mod(r.v, (int64_t)value, (const uint64_t*)Fr_q.longVal);
+    mp_set_mod(r.v, (int64_t)value, Fr_q.longVal);
     Fr_rawToMontgomery(r.v, r.v);
 }
 
@@ -242,9 +220,13 @@ std::string RawFr::toString(const Element& a, uint32_t radix) {
 }
 
 void RawFr::inv(Element& r, const Element& a) {
-    uint8_t exp_le[MP_N];
-    fr_q_minus_2(exp_le);
-    exp(r, a, exp_le, (unsigned)sizeof(exp_le));
+    mp_uint_t an;
+    toMP(an, a);
+
+    mp_uint_t invn;
+    mp_invert(invn, an, Fr_q.longVal);
+
+    fromMP(r, invn);
 }
 
 void RawFr::div(Element& r, const Element& a, const Element& b) {
@@ -297,5 +279,4 @@ int RawFr::fromRprBE(Element& element, const uint8_t* data, int bytes) {
     return need;
 }
 
-static bool init = Fr_init();
 RawFr RawFr::field;

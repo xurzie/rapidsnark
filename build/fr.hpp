@@ -193,7 +193,7 @@ void Fr_longErr();
 // Pending functions to convert
 
 void Fr_str2element(PFrElement pE, char const*s, uint base);
-char *Fr_element2str(PFrElement pE);
+std::string Fr_element2str(PFrElement pE, uint32_t base = 10);
 void Fr_idiv(PFrElement r, PFrElement a, PFrElement b);
 void Fr_mod(PFrElement r, PFrElement a, PFrElement b);
 void Fr_inv(PFrElement r, PFrElement a);
@@ -268,6 +268,9 @@ public:
     int bytes ( void ) { return Fr_N64 * 8; };
 
     void fromUI(Element &r, unsigned long int v);
+
+    void toMP(mp_uint_t r, const Element &a);
+    void fromMP(Element &a, const mp_uint_t r);
 
     static RawFr field;
 };

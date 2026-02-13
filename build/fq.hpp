@@ -193,7 +193,7 @@ void Fq_longErr();
 // Pending functions to convert
 
 void Fq_str2element(PFqElement pE, char const*s, uint base);
-char *Fq_element2str(PFqElement pE);
+std::string Fq_element2str(PFqElement pE, uint32_t base = 10);
 void Fq_idiv(PFqElement r, PFqElement a, PFqElement b);
 void Fq_mod(PFqElement r, PFqElement a, PFqElement b);
 void Fq_inv(PFqElement r, PFqElement a);
@@ -269,6 +269,9 @@ public:
     int bytes ( void ) { return Fq_N64 * 8; };
 
     void fromUI(Element &r, unsigned long int v);
+
+    void toMP(mp_uint_t r, const Element &a);
+    void fromMP(Element &a, const mp_uint_t r);
 
     static RawFq field;
 };
