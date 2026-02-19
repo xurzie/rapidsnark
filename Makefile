@@ -52,7 +52,7 @@ ios_simulator:
 
 macos_arm64:
 	rm -rf build_prover_macos_arm64 && mkdir build_prover_macos_arm64 && cd build_prover_macos_arm64 && \
-		cmake .. -DTARGET_PLATFORM=macos_arm64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../package_macos_arm64 && \
+		cmake .. -DTARGET_PLATFORM=macos_arm64 -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../package_macos_arm64 $(CMAKE_ARGS) && \
 		make -j$(nproc) -vvv && make install
 
 macos_x86_64:
