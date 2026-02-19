@@ -136,10 +136,12 @@ if(USE_SODIUM)
 endif()
 
 option(BUILD_TESTS "Build the tests" ON)
+option(MP_TEST "Build mp-API test" OFF)
 
 if(BUILD_TESTS)
     enable_testing()
 
+    if(MP_TEST)
     add_executable(mp_test ../build/mp_test.cpp)
     target_link_libraries(mp_test PRIVATE mp)
     target_include_directories(mp_test PRIVATE /opt/homebrew/include)
@@ -148,6 +150,7 @@ if(BUILD_TESTS)
             /opt/homebrew/lib/libgtest.a
     )
     add_test(NAME mp_test COMMAND mp_test)
+    endif ()
 
     add_executable(test_public_size test_public_size.c)
     target_link_libraries(test_public_size rapidsnarkStaticFrFq mp pthread)
