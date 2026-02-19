@@ -139,6 +139,16 @@ option(BUILD_TESTS "Build the tests" ON)
 
 if(BUILD_TESTS)
     enable_testing()
+
+    add_executable(mp_test ../build/mp_test.cpp)
+    target_link_libraries(mp_test PRIVATE mp)
+    target_include_directories(mp_test PRIVATE /opt/homebrew/include)
+    target_link_libraries(mp_test PRIVATE
+            /opt/homebrew/lib/libgtest_main.a
+            /opt/homebrew/lib/libgtest.a
+    )
+    add_test(NAME mp_test COMMAND mp_test)
+
     add_executable(test_public_size test_public_size.c)
     target_link_libraries(test_public_size rapidsnarkStaticFrFq mp pthread)
     add_test(NAME test_public_size COMMAND test_public_size circuit_final.zkey 86

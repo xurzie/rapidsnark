@@ -225,34 +225,44 @@ static inline uint64_t mp_add_small_dec(uint64_t *x, uint32_t add) {
 bool mp_set(uint64_t *r, const char *str, uint32_t base) {
     if (!r || !str) return false;
     if (base == 0u) base = 10u;
-    if (base != 10u) return false;
+    if (base < 2u || base > 16u) return false;
 
     mp_zero(r);
 
-    while (*str && isspace((unsigned char)*str)) str++;
+    while (*str && std::isspace((unsigned char)*str)) str++;
     if (*str == '+') str++;
     if (*str == '-') return false;
 
     bool any = false;
-    for (; *str; str++) {
-        if (*str < '0' || *str > '9') break;
-        any = true;
 
 #if !defined(__SIZEOF_INT128__)
-        return false;
+    return false;
 #else
-        uint32_t digit = (uint32_t)(*str - '0');
-        if (mp_mul_small_dec(r, 10u) != 0) return false;
-        if (mp_add_small_dec(r, digit) != 0) return false;
-#endif
+    for (; *str; ++str) {
+        if (std::isspace((unsigned char)*str)) break;
+
+        const unsigned char uc = (unsigned char)*str;
+        uint32_t digit;
+        if (uc >= (unsigned char)'0' && uc <= (unsigned char)'9') {
+            digit = (uint32_t)(uc - (unsigned char)'0');
+        } else if (uc >= (unsigned char)'a' && uc <= (unsigned char)'f') {
+            digit = (uint32_t)(uc - (unsigned char)'a') + 10u;
+        } else if (uc >= (unsigned char)'A' && uc <= (unsigned char)'F') {
+            digit = (uint32_t)(uc - (unsigned char)'A') + 10u;
+        } else {
+            return false;
+        }
+        if (digit >= base) return false;
+
+        if (mp_mul(r, r, base) != 0) return false;
+        if (mp_add(r, r, digit) != 0) return false;
+        any = true;
     }
+#endif
 
     if (!any) return false;
-
-    while (*str && isspace((unsigned char)*str)) str++;
-    if (*str != '\0') return false;
-
-    return true;
+    while (*str && std::isspace((unsigned char)*str)) str++;
+    return *str == '\0';
 }
 
 #if defined(__SIZEOF_INT128__)
@@ -313,11 +323,42 @@ void mp_add_mod(uint64_t *r, const uint64_t *a, const uint64_t *b, const uint64_
     if (carry || mp_cmp(r, mod) >= 0) {
         mp_sub(r, r, mod);
     }
+      mp_uint_t aa, bb, q, rem;
+
+    if (mp_cmp(a, mod) >= 0) {
+        if (!mp_div(q, rem, a, mod)) { mp_zero(r); return; }
+        mp_copy(aa, rem);
+    } else {
+        mp_copy(aa, a);
+    }
+
+    if (mp_cmp(b, mod) >= 0) {
+        if (!mp_div(q, rem, b, mod)) { mp_zero(r); return; }
+        mp_copy(bb, rem);
+    } else {
+        mp_copy(bb, b);
+    }
+
+    const uint64_t car = mp_add(r, aa, bb);
+
+    if (car || mp_cmp(r, mod) >= 0) {
+        mp_sub(r, r, mod);
+        if (mp_cmp(r, mod) >= 0) mp_sub(r, r, mod);
+    }
 }
 
 void mp_mul_mod(uint64_t *r, const uint64_t *a, uint32_t b, const uint64_t *mod) {
     uint64_t res[MP_N64]; mp_set(res, 0);
-    uint64_t cur[MP_N64]; mp_copy(cur, a);
+
+    // reduce 'a' first if needed
+    uint64_t cur[MP_N64];
+    if (mp_cmp(a, mod) >= 0) {
+        mp_uint_t q, rem;
+        if (!mp_div(q, rem, a, mod)) { mp_zero(r); return; }
+        mp_copy(cur, rem);
+    } else {
+        mp_copy(cur, a);
+    }
 
     uint32_t k = b;
     while (k) {
@@ -326,16 +367,13 @@ void mp_mul_mod(uint64_t *r, const uint64_t *a, uint32_t b, const uint64_t *mod)
             mp_add_mod(tmp, res, cur, mod);
             mp_copy(res, tmp);
         }
-
         k >>= 1u;
-
         if (k) {
             uint64_t tmp[MP_N64];
             mp_add_mod(tmp, cur, cur, mod);
             mp_copy(cur, tmp);
         }
     }
-
     mp_copy(r, res);
 }
 
@@ -675,6 +713,38 @@ static inline void mp_mod_2n_n(uint64_t *r,
 
 static inline void mp_mulmod(uint64_t *r, const uint64_t *a, const uint64_t *b, const uint64_t *mod)
 {
+    if (mod[MP_N64 - 1] == 0) {
+        // If modulus fits in 64-bit, do 64-bit reduction.
+        if (mod[1] == 0 && mod[2] == 0 && mod[3] == 0) {
+            const uint64_t m = mod[0];
+            if (m == 0) { mp_zero(r); return; }
+
+            auto red_u64 = [&](const uint64_t *x) -> uint64_t {
+                __uint128_t rem = 0;
+                for (int i = MP_N64 - 1; i >= 0; --i) {
+                    rem = ((rem << 64) | x[i]) % m;
+                }
+                return (uint64_t)rem;
+            };
+
+            const uint64_t ra = red_u64(a);
+            const uint64_t rb = red_u64(b);
+            const uint64_t out = (uint64_t)(((__uint128_t)ra * (__uint128_t)rb) % m);
+            mp_set(r, out);
+            return;
+        }
+
+        // Generic fallback: reduce via division on MP_N64 limbs
+        // (works even if top limb of mod is 0, mp_div handles that).
+        mp_uint_t qa, ra, qb, rb;
+        if (!mp_div(qa, ra, a, mod)) { mp_zero(r); return; }
+        if (!mp_div(qb, rb, b, mod)) { mp_zero(r); return; }
+        uint64_t prod[2 * MP_N64];
+        mp_mul_full(prod, ra, rb);
+        mp_mod_2n_n(r, prod, mod); // now ra/rb < mod; still fine
+        return;
+    }
+
     uint64_t prod[2 * MP_N64];
     mp_mul_full(prod, a, b);
     mp_mod_2n_n(r, prod, mod);
