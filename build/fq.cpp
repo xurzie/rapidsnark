@@ -5,46 +5,25 @@
 #include <stdexcept>
 #include <climits>
 
-void Fq_fromMP(PFqElement pE, const uint64_t *v) {
-    if (mp_fits_int32(v)) {
-        pE->type = Fq_SHORT;
-        pE->shortVal = (int32_t)v[0];
-        return;
-    }
-    pE->type = Fq_LONG;
-    mp_copy(pE->longVal, v);
-}
-
-void Fq_toMP(uint64_t *out, PFqElement pE) {
+void Fq_toMP(mp_uint_t out, PFqElement pE) {
     FqElement tmp;
     Fq_toNormal(&tmp, pE);
+
     if (!(tmp.type & Fq_LONG)) {
-        mp_set_mod(out, (int64_t)tmp.shortVal, Fq_q.longVal);
-        return;
-    }
-    mp_copy(out, tmp.longVal);
-}
-
-static inline void Fq_toRawNormal(FqRawElement out, PFqElement a) {
-    FqElement tmp;
-    Fq_toNormal(&tmp, a);
-    if (tmp.type & Fq_LONG) {
+        mp_set_mod(out, tmp.shortVal, Fq_q.longVal);
+    } else {
         mp_copy(out, tmp.longVal);
-        return;
     }
-    mp_uint_t v;
-    mp_set_mod(v, (int64_t)tmp.shortVal, Fq_q.longVal);
-    mp_copy(out, v);
 }
 
-static inline void Fq_fromRawNormal(PFqElement out, const FqRawElement in) {
-    if (in[1] == 0 && in[2] == 0 && in[3] == 0 && in[0] <= (uint64_t)INT_MAX) {
-        out->type = Fq_SHORT;
-        out->shortVal = (int32_t)in[0];
-        return;
+void Fq_fromMP(PFqElement pE, const mp_uint_t v) {
+    if (mp_fits_int32(v)) {
+        pE->type = Fq_SHORT;
+        pE->shortVal = mp_get_int32(v);
+    } else {
+        pE->type = Fq_LONG;
+        mp_copy(pE->longVal, v);
     }
-    out->type = Fq_LONG;
-    mp_copy(out->longVal, in);
 }
 
 void Fq_str2element(PFqElement pE, char const *s, uint base) {
@@ -58,7 +37,7 @@ void Fq_str2element(PFqElement pE, char const *s, uint base) {
 std::string Fq_element2str(PFqElement pE, uint32_t base) {
     mp_uint_t v;
     Fq_toMP(v, pE);
-    return mp_get_str(v, base);
+    return mp_set_str(v, base);
 }
 
 void Fq_idiv(PFqElement r, PFqElement a, PFqElement b) {
@@ -67,10 +46,12 @@ void Fq_idiv(PFqElement r, PFqElement a, PFqElement b) {
     Fq_toMP(mb, b);
 
     mp_uint_t q, rem;
-    if (mp_divmod(q, rem, ma, mb) != 0) {
-        throw std::runtime_error("division by zero");
+    if (mp_div(q, rem, ma, mb)) {
+        Fq_fromMP(r, q);
+    } else {
+        mp_set(q, 0u);
+        Fq_fromMP(r, q);
     }
-    Fq_fromMP(r, q);
 }
 
 void Fq_mod(PFqElement r, PFqElement a, PFqElement b) {
@@ -79,36 +60,35 @@ void Fq_mod(PFqElement r, PFqElement a, PFqElement b) {
     Fq_toMP(mb, b);
 
     mp_uint_t q, rem;
-    if (mp_divmod(q, rem, ma, mb) != 0) {
-        throw std::runtime_error("division by zero");
+    if (mp_div(q, rem, ma, mb)) {
+        Fq_fromMP(r, rem);
+    } else {
+        mp_set(rem, 0u);
+        Fq_fromMP(r, rem);
     }
-    Fq_fromMP(r, rem);
 }
 
 void Fq_pow(PFqElement r, PFqElement a, PFqElement b) {
     mp_uint_t mb;
     Fq_toMP(mb, b);
 
-    uint8_t exp[MP_N];
-    mp_export(exp, mb);
+    mp_uint_t base;
+    Fq_toMP(base, a);
 
-    FqRawElement base_norm;
-    Fq_toRawNormal(base_norm, a);
+    mp_uint_t res;
+    mp_pow_mod(res, base, mb, Fq_q.longVal);
 
-    FqRawElement res_norm;
-    mp_powm(res_norm, base_norm, exp, (unsigned)sizeof(exp), Fq_q.longVal);
-
-    Fq_fromRawNormal(r, res_norm);
+    Fq_fromMP(r, res);
 }
 
 void Fq_inv(PFqElement r, PFqElement a) {
-    FqRawElement base_norm;
-    Fq_toRawNormal(base_norm, a);
+    mp_uint_t base;
+    Fq_toMP(base, a);
 
-    FqRawElement res_norm;
-    mp_invert(res_norm, base_norm, Fq_q.longVal);
+    mp_uint_t res;
+    mp_inv_mod(res, base, Fq_q.longVal);
 
-    Fq_fromRawNormal(r, res_norm);
+    Fq_fromMP(r, res);
 }
 
 void Fq_div(PFqElement r, PFqElement a, PFqElement b) {
@@ -145,17 +125,6 @@ void RawFq::fromUI(Element& r, unsigned long int v) {
     Fq_rawToMontgomery(r.v, r.v);
 }
 
-void RawFq::toMP(mp_uint_t r, const Element &a) {
-    FqRawElement tmp;
-    Fq_rawFromMontgomery(tmp, a.v);
-    mp_copy(r, tmp);
-}
-
-void RawFq::fromMP(Element &a, const mp_uint_t r) {
-    mp_copy(a.v, r);
-    Fq_rawToMontgomery(a.v, a.v);
-}
-
 RawFq::Element RawFq::set(int value) {
     Element r;
     set(r, value);
@@ -163,16 +132,14 @@ RawFq::Element RawFq::set(int value) {
 }
 
 void RawFq::set(Element& r, int value) {
-    mp_set_mod(r.v, (int64_t)value, Fq_q.longVal);
+    mp_set_mod(r.v, value, Fq_q.longVal);
     Fq_rawToMontgomery(r.v, r.v);
 }
 
 std::string RawFq::toString(const Element& a, uint32_t radix) {
     Element tmp;
     Fq_rawFromMontgomery(tmp.v, a.v);
-    mp_uint_t v;
-    mp_copy(v, tmp.v);
-    return mp_get_str(v, (int)radix);
+    return mp_set_str(tmp.v, radix);
 }
 
 void RawFq::inv(Element& r, const Element& a) {
@@ -180,7 +147,7 @@ void RawFq::inv(Element& r, const Element& a) {
     toMP(an, a);
 
     mp_uint_t invn;
-    mp_invert(invn, an, Fq_q.longVal);
+    mp_inv_mod(invn, an, Fq_q.longVal);
 
     fromMP(r, invn);
 }
@@ -214,24 +181,36 @@ void RawFq::exp(Element& r, const Element& base, uint8_t* scalar, unsigned int s
     }
 }
 
+void RawFq::toMP(mp_uint_t r, const Element &a) {
+    FqRawElement tmp;
+    Fq_rawFromMontgomery(tmp, a.v);
+    mp_copy(r, tmp);
+}
+
+void RawFq::fromMP(Element &a, const mp_uint_t r) {
+    mp_copy(a.v, r);
+    Fq_rawToMontgomery(a.v, a.v);
+}
+
 int RawFq::toRprBE(const Element& element, uint8_t* data, int bytes) {
     const int need = Fq_N64 * 8;
     if (bytes < need) return -need;
-    Element tmp;
-    Fq_rawFromMontgomery(tmp.v, element.v);
+
     mp_uint_t v;
-    mp_copy(v, tmp.v);
+    toMP(v, element);
     mp_export_be(data, v);
+
     return need;
 }
 
 int RawFq::fromRprBE(Element& element, const uint8_t* data, int bytes) {
     const int need = Fq_N64 * 8;
     if (bytes < need) return -need;
+
     mp_uint_t v;
     mp_import_be(v, data);
-    mp_copy(element.v, v);
-    Fq_rawToMontgomery(element.v, element.v);
+    fromMP(element, v);
+
     return need;
 }
 

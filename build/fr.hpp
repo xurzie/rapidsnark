@@ -190,8 +190,9 @@ void Fr_longErr();
 
 #endif
 
-// Pending functions to convert
 
+void Fr_toMP(mp_uint_t out, PFrElement a);
+void Fr_fromMP(PFrElement out, const mp_uint_t v);
 void Fr_str2element(PFrElement pE, char const*s, uint base);
 std::string Fr_element2str(PFrElement pE, uint32_t base = 10);
 void Fr_idiv(PFrElement r, PFrElement a, PFrElement b);
@@ -199,8 +200,6 @@ void Fr_mod(PFrElement r, PFrElement a, PFrElement b);
 void Fr_inv(PFrElement r, PFrElement a);
 void Fr_div(PFrElement r, PFrElement a, PFrElement b);
 void Fr_pow(PFrElement r, PFrElement a, PFrElement b);
-void Fr_toMP(uint64_t *out, PFrElement a);
-void Fr_fromMP(PFrElement out, const uint64_t *v);
 
 class RawFr {
 public:
@@ -262,15 +261,15 @@ public:
     int inline eq(const Element &a, const Element &b) { return Fr_rawIsEq(a.v, b.v); };
     int inline isZero(const Element &a) { return Fr_rawIsZero(a.v); };
 
+    void toMP(mp_uint_t r, const Element &a);
+    void fromMP(Element &a, const mp_uint_t r);
+
     int toRprBE(const Element &element, uint8_t *data, int bytes);
     int fromRprBE(Element &element, const uint8_t *data, int bytes);
 
     int bytes ( void ) { return Fr_N64 * 8; };
 
     void fromUI(Element &r, unsigned long int v);
-
-    void toMP(mp_uint_t r, const Element &a);
-    void fromMP(Element &a, const mp_uint_t r);
 
     static RawFr field;
 };

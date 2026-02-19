@@ -190,8 +190,9 @@ void Fq_longErr();
 
 #endif
 
-// Pending functions to convert
 
+void Fq_toMP(mp_uint_t out, PFqElement a);
+void Fq_fromMP(PFqElement out, const mp_uint_t v);
 void Fq_str2element(PFqElement pE, char const*s, uint base);
 std::string Fq_element2str(PFqElement pE, uint32_t base = 10);
 void Fq_idiv(PFqElement r, PFqElement a, PFqElement b);
@@ -199,8 +200,6 @@ void Fq_mod(PFqElement r, PFqElement a, PFqElement b);
 void Fq_inv(PFqElement r, PFqElement a);
 void Fq_div(PFqElement r, PFqElement a, PFqElement b);
 void Fq_pow(PFqElement r, PFqElement a, PFqElement b);
-void Fq_toMP(uint64_t *out, PFqElement a);
-void Fq_fromMP(PFqElement out, const uint64_t *v);
 
 class RawFq {
 
@@ -263,15 +262,15 @@ public:
     int inline eq(const Element &a, const Element &b) { return Fq_rawIsEq(a.v, b.v); };
     int inline isZero(const Element &a) { return Fq_rawIsZero(a.v); };
 
+    void toMP(mp_uint_t r, const Element &a);
+    void fromMP(Element &a, const mp_uint_t r);
+
     int toRprBE(const Element &element, uint8_t *data, int bytes);
     int fromRprBE(Element &element, const uint8_t *data, int bytes);
 
     int bytes ( void ) { return Fq_N64 * 8; };
 
     void fromUI(Element &r, unsigned long int v);
-
-    void toMP(mp_uint_t r, const Element &a);
-    void fromMP(Element &a, const mp_uint_t r);
 
     static RawFq field;
 };

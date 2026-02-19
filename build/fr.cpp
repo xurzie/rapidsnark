@@ -1,52 +1,29 @@
 #include "fr.hpp"
 #include "mp.hpp"
-
 #include <cstring>
 #include <string>
 #include <stdexcept>
 #include <climits>
 
-void Fr_fromMP(PFrElement pE, const uint64_t *v) {
-    if (mp_fits_int32(v)) {
-        pE->type = Fr_SHORT;
-        pE->shortVal = (int32_t)v[0];
-        return;
-    }
-    pE->type = Fr_LONG;
-    mp_copy(pE->longVal, v);
-}
-
-void Fr_toMP(uint64_t *out, PFrElement pE) {
+void Fr_toMP(mp_uint_t out, PFrElement pE) {
     FrElement tmp;
     Fr_toNormal(&tmp, pE);
 
     if (!(tmp.type & Fr_LONG)) {
-        mp_set_mod(out, (int64_t)tmp.shortVal, Fr_q.longVal);
-        return;
-    }
-    mp_copy(out, tmp.longVal);
-}
-
-static inline void Fr_toRawNormal(FrRawElement out, PFrElement a) {
-    FrElement tmp;
-    Fr_toNormal(&tmp, a);
-    if (tmp.type & Fr_LONG) {
+        mp_set_mod(out, tmp.shortVal, Fr_q.longVal);
+    } else {
         mp_copy(out, tmp.longVal);
-        return;
     }
-    mp_uint_t v;
-    mp_set_mod(v, (int64_t)tmp.shortVal, Fr_q.longVal);
-    mp_copy(out, v);
 }
 
-static inline void Fr_fromRawNormal(PFrElement out, const FrRawElement in) {
-    if (in[1] == 0 && in[2] == 0 && in[3] == 0 && in[0] <= (uint64_t)INT_MAX) {
-        out->type = Fr_SHORT;
-        out->shortVal = (int32_t)in[0];
-        return;
+void Fr_fromMP(PFrElement pE, const mp_uint_t v) {
+    if (mp_fits_int32(v)) {
+        pE->type = Fr_SHORT;
+        pE->shortVal = mp_get_int32(v);
+    } else {
+        pE->type = Fr_LONG;
+        mp_copy(pE->longVal, v);
     }
-    out->type = Fr_LONG;
-    mp_copy(out->longVal, in);
 }
 
 void Fr_str2element(PFrElement pE, char const* s, uint base) {
@@ -60,7 +37,7 @@ void Fr_str2element(PFrElement pE, char const* s, uint base) {
 std::string Fr_element2str(PFrElement pE, uint32_t base) {
     mp_uint_t v;
     Fr_toMP(v, pE);
-    return mp_get_str(v, base);
+    return mp_set_str(v, base);
 }
 
 void Fr_idiv(PFrElement r, PFrElement a, PFrElement b) {
@@ -69,10 +46,12 @@ void Fr_idiv(PFrElement r, PFrElement a, PFrElement b) {
     Fr_toMP(mb, b);
 
     mp_uint_t q, rem;
-    if (mp_divmod(q, rem, ma, mb) != 0) {
-        throw std::runtime_error("division by zero");
+    if (mp_div(q, rem, ma, mb)) {
+        Fr_fromMP(r, q);
+    } else {
+        mp_set(q, 0u);
+        Fr_fromMP(r, q);
     }
-    Fr_fromMP(r, q);
 }
 
 void Fr_mod(PFrElement r, PFrElement a, PFrElement b) {
@@ -81,36 +60,35 @@ void Fr_mod(PFrElement r, PFrElement a, PFrElement b) {
     Fr_toMP(mb, b);
 
     mp_uint_t q, rem;
-    if (mp_divmod(q, rem, ma, mb) != 0) {
-        throw std::runtime_error("division by zero");
+    if (mp_div(q, rem, ma, mb)) {
+        Fr_fromMP(r, rem);
+    } else {
+        mp_set(rem, 0u);
+        Fr_fromMP(r, rem);
     }
-    Fr_fromMP(r, rem);
 }
 
 void Fr_pow(PFrElement r, PFrElement a, PFrElement b) {
     mp_uint_t mb;
     Fr_toMP(mb, b);
 
-    uint8_t exp[MP_N];
-    mp_export(exp, mb);
+    mp_uint_t base;
+    Fr_toMP(base, a);
 
-    FrRawElement base_norm;
-    Fr_toRawNormal(base_norm, a);
+    mp_uint_t res;
+    mp_pow_mod(res, base, mb, Fr_q.longVal);
 
-    FrRawElement res_norm;
-    mp_powm(res_norm, base_norm, exp, (unsigned)sizeof(exp), Fr_q.longVal);
-
-    Fr_fromRawNormal(r, res_norm);
+    Fr_fromMP(r, res);
 }
 
 void Fr_inv(PFrElement r, PFrElement a) {
-    FrRawElement base_norm;
-    Fr_toRawNormal(base_norm, a);
+    mp_uint_t base;
+    Fr_toMP(base, a);
 
-    FrRawElement res_norm;
-    mp_invert(res_norm, base_norm, Fr_q.longVal);
+    mp_uint_t res;
+    mp_inv_mod(res, base, Fr_q.longVal);
 
-    Fr_fromRawNormal(r, res_norm);
+    Fr_fromMP(r, res);
 }
 
 void Fr_div(PFrElement r, PFrElement a, PFrElement b) {
@@ -147,17 +125,6 @@ void RawFr::fromUI(Element& r, unsigned long int v) {
     Fr_rawToMontgomery(r.v, r.v);
 }
 
-void RawFr::toMP(mp_uint_t r, const Element &a) {
-    FrRawElement tmp;
-    Fr_rawFromMontgomery(tmp, a.v);
-    mp_copy(r, tmp);
-}
-
-void RawFr::fromMP(Element &a, const mp_uint_t r) {
-    mp_copy(a.v, r);
-    Fr_rawToMontgomery(a.v, a.v);
-}
-
 RawFr::Element RawFr::set(int value) {
     Element r;
     set(r, value);
@@ -165,16 +132,14 @@ RawFr::Element RawFr::set(int value) {
 }
 
 void RawFr::set(Element& r, int value) {
-    mp_set_mod(r.v, (int64_t)value, Fr_q.longVal);
+    mp_set_mod(r.v, value, Fr_q.longVal);
     Fr_rawToMontgomery(r.v, r.v);
 }
 
 std::string RawFr::toString(const Element& a, uint32_t radix) {
     Element tmp;
     Fr_rawFromMontgomery(tmp.v, a.v);
-    mp_uint_t v;
-    mp_copy(v, tmp.v);
-    return mp_get_str(v, (int)radix);
+    return mp_set_str(tmp.v, radix);
 }
 
 void RawFr::inv(Element& r, const Element& a) {
@@ -182,7 +147,7 @@ void RawFr::inv(Element& r, const Element& a) {
     toMP(an, a);
 
     mp_uint_t invn;
-    mp_invert(invn, an, Fr_q.longVal);
+    mp_inv_mod(invn, an, Fr_q.longVal);
 
     fromMP(r, invn);
 }
@@ -216,24 +181,36 @@ void RawFr::exp(Element& r, const Element& base, uint8_t* scalar, unsigned int s
     }
 }
 
+void RawFr::toMP(mp_uint_t r, const Element &a) {
+    FrRawElement tmp;
+    Fr_rawFromMontgomery(tmp, a.v);
+    mp_copy(r, tmp);
+}
+
+void RawFr::fromMP(Element &a, const mp_uint_t r) {
+    mp_copy(a.v, r);
+    Fr_rawToMontgomery(a.v, a.v);
+}
+
 int RawFr::toRprBE(const Element& element, uint8_t* data, int bytes) {
     const int need = Fr_N64 * 8;
     if (bytes < need) return -need;
-    Element tmp;
-    Fr_rawFromMontgomery(tmp.v, element.v);
+
     mp_uint_t v;
-    mp_copy(v, tmp.v);
+    toMP(v, element);
     mp_export_be(data, v);
+
     return need;
 }
 
 int RawFr::fromRprBE(Element& element, const uint8_t* data, int bytes) {
     const int need = Fr_N64 * 8;
     if (bytes < need) return -need;
+
     mp_uint_t v;
     mp_import_be(v, data);
-    mp_copy(element.v, v);
-    Fr_rawToMontgomery(element.v, element.v);
+    fromMP(element, v);
+
     return need;
 }
 
