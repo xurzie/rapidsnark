@@ -5,6 +5,13 @@
 #include <stdexcept>
 #include <climits>
 
+static const uint64_t FQ_Q_MINUS_2[4] = {
+    0x3c208c16d87cfd45ULL,
+    0x97816a916871ca8dULL,
+    0xb85045b68181585dULL,
+    0x30644e72e131a029ULL
+};
+
 void Fq_toMP(mp_uint_t out, PFqElement pE) {
     FqElement tmp;
     Fq_toNormal(&tmp, pE);
@@ -37,7 +44,7 @@ void Fq_str2element(PFqElement pE, char const *s, uint base) {
 std::string Fq_element2str(PFqElement pE, uint32_t base) {
     mp_uint_t v;
     Fq_toMP(v, pE);
-    return mp_set_str(v, base);
+    return mp_get_str(v, base);
 }
 
 void Fq_idiv(PFqElement r, PFqElement a, PFqElement b) {
@@ -46,12 +53,8 @@ void Fq_idiv(PFqElement r, PFqElement a, PFqElement b) {
     Fq_toMP(mb, b);
 
     mp_uint_t q, rem;
-    if (mp_div(q, rem, ma, mb)) {
-        Fq_fromMP(r, q);
-    } else {
-        mp_set(q, 0u);
-        Fq_fromMP(r, q);
-    }
+    mp_div(q, rem, ma, mb);
+    Fq_fromMP(r, q);
 }
 
 void Fq_mod(PFqElement r, PFqElement a, PFqElement b) {
@@ -60,12 +63,8 @@ void Fq_mod(PFqElement r, PFqElement a, PFqElement b) {
     Fq_toMP(mb, b);
 
     mp_uint_t q, rem;
-    if (mp_div(q, rem, ma, mb)) {
-        Fq_fromMP(r, rem);
-    } else {
-        mp_set(rem, 0u);
-        Fq_fromMP(r, rem);
-    }
+    mp_div(q, rem, ma, mb);
+    Fq_fromMP(r, rem);
 }
 
 void Fq_pow(PFqElement r, PFqElement a, PFqElement b) {
@@ -139,17 +138,14 @@ void RawFq::set(Element& r, int value) {
 std::string RawFq::toString(const Element& a, uint32_t radix) {
     Element tmp;
     Fq_rawFromMontgomery(tmp.v, a.v);
-    return mp_set_str(tmp.v, radix);
+    return mp_get_str(tmp.v, radix);
 }
 
 void RawFq::inv(Element& r, const Element& a) {
-    mp_uint_t an;
-    toMP(an, a);
-
-    mp_uint_t invn;
-    mp_inv_mod(invn, an, Fq_q.longVal);
-
-    fromMP(r, invn);
+    Element t;
+    Fq_rawFromMontgomery(t.v, a.v);
+    mp_inv_mod(r.v, t.v, Fq_q.longVal);
+    Fq_rawMMul(r.v, r.v, Fq_R2.longVal);
 }
 
 void RawFq::div(Element& r, const Element& a, const Element& b) {

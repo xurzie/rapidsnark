@@ -143,7 +143,7 @@ if(BUILD_TESTS)
 
     if(MP_TEST)
     add_executable(mp_test ../build/mp_test.cpp)
-    target_link_libraries(mp_test PRIVATE mp)
+    target_link_libraries(mp_test PRIVATE mp fq)
     target_include_directories(mp_test PRIVATE /opt/homebrew/include)
     target_link_libraries(mp_test PRIVATE
             /opt/homebrew/lib/libgtest_main.a

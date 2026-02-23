@@ -37,7 +37,7 @@ void Fr_str2element(PFrElement pE, char const* s, uint base) {
 std::string Fr_element2str(PFrElement pE, uint32_t base) {
     mp_uint_t v;
     Fr_toMP(v, pE);
-    return mp_set_str(v, base);
+    return mp_get_str(v, base);
 }
 
 void Fr_idiv(PFrElement r, PFrElement a, PFrElement b) {
@@ -46,12 +46,8 @@ void Fr_idiv(PFrElement r, PFrElement a, PFrElement b) {
     Fr_toMP(mb, b);
 
     mp_uint_t q, rem;
-    if (mp_div(q, rem, ma, mb)) {
-        Fr_fromMP(r, q);
-    } else {
-        mp_set(q, 0u);
-        Fr_fromMP(r, q);
-    }
+    mp_div(q, rem, ma, mb);
+    Fr_fromMP(r, q);
 }
 
 void Fr_mod(PFrElement r, PFrElement a, PFrElement b) {
@@ -60,12 +56,8 @@ void Fr_mod(PFrElement r, PFrElement a, PFrElement b) {
     Fr_toMP(mb, b);
 
     mp_uint_t q, rem;
-    if (mp_div(q, rem, ma, mb)) {
-        Fr_fromMP(r, rem);
-    } else {
-        mp_set(rem, 0u);
-        Fr_fromMP(r, rem);
-    }
+    mp_div(q, rem, ma, mb);
+    Fr_fromMP(r, rem);
 }
 
 void Fr_pow(PFrElement r, PFrElement a, PFrElement b) {
@@ -139,17 +131,14 @@ void RawFr::set(Element& r, int value) {
 std::string RawFr::toString(const Element& a, uint32_t radix) {
     Element tmp;
     Fr_rawFromMontgomery(tmp.v, a.v);
-    return mp_set_str(tmp.v, radix);
+    return mp_get_str(tmp.v, radix);
 }
 
 void RawFr::inv(Element& r, const Element& a) {
-    mp_uint_t an;
-    toMP(an, a);
-
-    mp_uint_t invn;
-    mp_inv_mod(invn, an, Fr_q.longVal);
-
-    fromMP(r, invn);
+    Element t;
+    Fr_rawFromMontgomery(t.v, a.v);
+    mp_inv_mod(r.v, t.v, Fr_q.longVal);
+    Fr_rawMMul(r.v, r.v, Fr_R2.longVal);
 }
 
 void RawFr::div(Element& r, const Element& a, const Element& b) {
