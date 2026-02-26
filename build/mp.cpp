@@ -85,7 +85,7 @@ void mp_shl(uint64_t *r, const uint64_t *a, uint64_t k) {
     const uint32_t bitShift  = k & 63u;
 
     if (bitShift == 0) {
-        for (int i = 3; i >= 0; i--) {
+        for (int i = MP_N64 - 1; i >= 0; i--) {
             int si = i - (int)wordShift;
             r[i] = (si >= 0) ? a[si] : 0;
         }
@@ -189,10 +189,10 @@ void mp_export_be(uint8_t *r, const uint64_t *a) {
 
 void mp_import_be(uint64_t *r, const uint8_t *a) {
     mp_zero(r);
+    uint8_t *dst = (uint8_t *)r;
 
     for (int i = 0; i < MP_N; i++) {
-        const uint8_t byte = a[MP_N - 1 - i];
-        r[i / 8] |= (uint64_t)byte << (8 * (i % 8));
+        dst[i] = (uint8_t)a[MP_N - 1 - i];
     }
 }
 
@@ -208,9 +208,6 @@ bool mp_set(uint64_t *r, const char *str, uint32_t base) {
 
     bool any = false;
 
-#if !defined(__SIZEOF_INT128__)
-    return false;
-#else
     for (; *str; ++str) {
         if (std::isspace((unsigned char)*str)) break;
 
@@ -231,24 +228,43 @@ bool mp_set(uint64_t *r, const char *str, uint32_t base) {
         if (mp_add(r, r, digit) != 0) return false;
         any = true;
     }
-#endif
 
     if (!any) return false;
     while (*str && std::isspace((unsigned char)*str)) str++;
     return *str == '\0';
 }
 
-#if defined(__SIZEOF_INT128__)
 static inline uint32_t mp_div(uint64_t *q, const uint64_t *a, uint32_t base) {
+#if defined(__SIZEOF_INT128__)
     uint64_t rem = 0;
+
     for (int i = 3; i >= 0; i--) {
         __uint128_t cur = (((__uint128_t)rem) << 2*MP_N) | (__uint128_t)a[i];
         q[i] = (uint64_t)(cur / base);
         rem  = (uint64_t)(cur % base);
     }
     return (uint32_t)rem;
-}
+#else
+    // long division in base 2^32: numerator = rem*2^64 + a[i]
+    // rem < base <= 16 => safe in uint32_t
+    uint32_t rem = 0;
+    for (int i = MP_N64 - 1; i >= 0; --i) {
+        uint32_t hi = (uint32_t)(a[i] >> MP_N);
+        uint32_t lo = (uint32_t)(a[i] & 0xFFFFFFFFu);
+
+        uint64_t cur = ((uint64_t)rem << MP_N) | (uint64_t)hi;
+        uint32_t qhi = (uint32_t)(cur / base);
+        rem = (uint32_t)(cur % base);
+
+        cur = ((uint64_t)rem << MP_N) | (uint64_t)lo;
+        uint32_t qlo = (uint32_t)(cur / base);
+        rem = (uint32_t)(cur % base);
+
+        q[i] = ((uint64_t)qhi << MP_N) | (uint64_t)qlo;
+    }
+    return rem;
 #endif
+}
 
 std::string mp_get_str(const uint64_t *a, uint32_t base) {
     if (base == 0u) base = 10u;
@@ -256,9 +272,6 @@ std::string mp_get_str(const uint64_t *a, uint32_t base) {
 
     if (mp_is_zero(a)) return std::string("0");
 
-#if !defined(__SIZEOF_INT128__)
-    return std::string();
-#else
     uint64_t v[MP_N64];
     mp_copy(v, a);
 
@@ -274,7 +287,6 @@ std::string mp_get_str(const uint64_t *a, uint32_t base) {
 
     std::reverse(out.begin(), out.end());
     return out;
-#endif
 }
 
 bool mp_fits_int32(const uint64_t *a) {
@@ -362,9 +374,6 @@ bool mp_set_mod(uint64_t *r, const char *str, uint32_t base, const uint64_t *mod
 
     bool any = false;
 
-#if !defined(__SIZEOF_INT128__)
-    return false;
-#else
     auto reduce_small = [&](uint64_t *x) {
         // x < mod*base + 15  => at most base subtractions (base <= 16)
         while (mp_cmp(x, mod) >= 0) {
@@ -375,17 +384,32 @@ bool mp_set_mod(uint64_t *r, const char *str, uint32_t base, const uint64_t *mod
     for (; *str; str++) {
         if (std::isspace((unsigned char)*str)) break;
 
-        const unsigned char uc = (unsigned char)*str;
+        const char uc = *str;
         uint32_t d;
-        if (uc >= (unsigned char)'0' && uc <= (unsigned char)'9') {
-            d = (uint32_t)(uc - (unsigned char)'0');
-        } else if (uc >= (unsigned char)'a' && uc <= (unsigned char)'f') {
-            d = (uint32_t)(uc - (unsigned char)'a') + 10u;
-        } else if (uc >= (unsigned char)'A' && uc <= (unsigned char)'F') {
-            d = (uint32_t)(uc - (unsigned char)'A') + 10u;
+        if (uc >= '0' && uc <= '9') {
+            d = uc - '0';
+        } else if (uc >= 'a' && uc <= 'f') {
+            d = (uc - 'a') + 10u;
+        } else if (uc >= 'A' && uc <= 'F') {
+            d = (uc - 'A') + 10u;
         } else {
             return false;
         }
+        if (d >= base) return false;
+
+#if !defined(__SIZEOF_INT128__)
+        {
+            uint64_t t1[MP_N64];
+            mp_mul_mod(t1, acc, base, mod);
+            uint64_t dv[MP_N64];
+            mp_set(dv, d);
+            uint64_t t2[MP_N64];
+            mp_add_mod(t2, t1, dv, mod);
+            mp_copy(acc, t2);
+            any = true;
+            continue;
+        }
+#else
 
         // acc = (acc * base + d) mod mod
         uint64_t tmp[MP_N64];
@@ -435,6 +459,7 @@ bool mp_set_mod(uint64_t *r, const char *str, uint32_t base, const uint64_t *mod
         mp_copy(acc, tmp);
         reduce_small(acc);
         any = true;
+#endif
     }
 
     if (!any) return false;
@@ -450,7 +475,6 @@ bool mp_set_mod(uint64_t *r, const char *str, uint32_t base, const uint64_t *mod
 
     mp_copy(r, acc);
     return true;
-#endif
 }
 
 static inline unsigned mp_clz64(uint64_t x) { return x ? __builtin_clzll(x) : 64; }
@@ -521,8 +545,32 @@ void mp_div(uint64_t *q, uint64_t *r, const uint64_t *num, const uint64_t *den) 
     }
 
 #if !defined(__SIZEOF_INT128__)
+    // Safe fallback: binary long division (restoring division) with 1 extra limb for remainder.
+    if (mp_is_zero(den)) { mp_zero(q); mp_zero(r); return; }
+
     mp_zero(q);
-    mp_zero(r);
+    uint64_t rem[MP_N64 + 1];
+    std::memset(rem, 0, sizeof(rem));
+
+    for (int bit = 255; bit >= 0; --bit) {
+        uint64_t carry = 0;
+        for (int i = 0; i < MP_N64 + 1; i++) {
+            uint64_t nc = rem[i] >> 2*MP_N - 1;
+            rem[i] = (rem[i] << 1) | carry;
+            carry = nc;
+        }
+
+        // rem |= bit(num)
+        if (mp_tstbit(num, (size_t)bit)) rem[0] |= 1ULL;
+
+        // if rem >= den then rem -= den, q[bit]=1
+        if (rem[MP_N64] || mp_cmp(rem, den) >= 0) {
+            uint64_t br = mp_sub(rem, rem, den);
+            rem[MP_N64] -= br;                    // propagate borrow into extra limb
+            q[(unsigned)bit >> 6] |= 1ULL << ((unsigned)bit & 2*MP_N - 1);
+        }
+    }
+    mp_copy(r, rem);
     return;
 #else
     int m = mp_num_limbs(num);
@@ -849,12 +897,11 @@ void mp_set_mod(uint64_t *r, int64_t a, const uint64_t *mod) {
 
     if (mp_cmp(av, mod) >= 0) {
         uint64_t q[MP_N64], rem[MP_N64];
-        mp_div(q, rem, r, mod);
-        mp_copy(r, rem);
+        mp_div(q, rem, av, mod);
+        mp_copy(av, rem);
     }
 
     if (mp_is_zero(av)) { mp_zero(r); return; }
-
     mp_sub(r, mod, av);
 }
 
@@ -987,7 +1034,7 @@ static inline void mp_sub_mod(uint64_t *x, const uint64_t *y, const uint64_t *mo
 
 // x = x/2 mod mod, mod must be odd, 0<=x<mod
 static inline void mp_div2_mod(uint64_t *x, const uint64_t *mod) {
-    // if x is odd: x += mod  (still fits into 5 limbs, but we discard top carry after >>1)
+    // if x is odd: x += mod
     if (x[0] & 1u) {
         uint64_t c = 0;
         c = add_carry(&x[0], x[0], mod[0], c);
