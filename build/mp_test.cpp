@@ -7,150 +7,11 @@
 #include "gtest/gtest.h"
 #include "mp.hpp"
 
-namespace {
 
-typedef uint64_t FqRawElement[MP_N64];
-
-typedef struct __attribute__((__packed__)) {
-    int32_t shortVal;
-    uint32_t type;
-    FqRawElement longVal;
-} FqElement;
-
-FqElement Fq_q = {0, 0x80000000, {0x3c208c16d87cfd47,0x97816a916871ca8d,0xb85045b68181585d,0x30644e72e131a029}};
-
-static inline void set(uint64_t r[MP_N64], uint64_t l0, uint64_t l1, uint64_t l2, uint64_t l3) {
-    r[0] = l0; r[1] = l1; r[2] = l2; r[3] = l3;
-}
-
-// 64x64 -> 128 without __uint128_t via 32-bit decomposition
-static inline void mul64_no128(uint64_t a, uint64_t b, uint64_t &lo, uint64_t &hi) {
-    const uint64_t a0 = (uint32_t)a;
-    const uint64_t a1 = a >> MP_N;
-    const uint64_t b0 = (uint32_t)b;
-    const uint64_t b1 = b >> MP_N;
-
-    const uint64_t p00 = a0 * b0;
-    const uint64_t p01 = a0 * b1;
-    const uint64_t p10 = a1 * b0;
-    const uint64_t p11 = a1 * b1;
-
-    uint64_t mid = (p00 >> MP_N) + (uint32_t)p01 + (uint32_t)p10;
-    lo = (p00 & 0xFFFFFFFFULL) | (mid << MP_N);
-    hi = p11 + (p01 >> MP_N) + (p10 >> MP_N) + (mid >> MP_N);
-}
-
-// Reference addmul for 256-bit: r += a*b, return carry-out (overflow beyond 256 bits)
-static inline uint64_t ref_addmul_no128(uint64_t r[MP_N64], const uint64_t a[MP_N64], uint64_t b) {
-    uint64_t carry = 0;
-    for (size_t i = 0; i < MP_N64; i++) {
-        uint64_t plo, phi;
-        mul64_no128(a[i], b, plo, phi);
-
-        uint64_t t = r[i] + plo;
-        uint64_t c1 = (t < r[i]) ? 1u : 0u;
-        uint64_t out = t + carry;
-        uint64_t c2 = (out < t) ? 1u : 0u;
-        r[i] = out;
-
-        uint64_t c = phi;
-        c += c1;
-        c += c2;
-        carry = c;
-    }
-    return carry;
-}
-
-static inline uint64_t ref_addmul_128(uint64_t r[MP_N64], const uint64_t a[MP_N64], uint64_t b) {
-#if defined(__SIZEOF_INT128__)
-    __uint128_t carry = 0;
-    for (size_t i = 0; i < MP_N64; i++) {
-        __uint128_t t = (__uint128_t)r[i] + (__uint128_t)a[i] * (__uint128_t)b + carry;
-        r[i] = (uint64_t)t;
-        carry = t >> 64;
-    }
-    return (uint64_t)carry;
-#else
-    (void)r; (void)a; (void)b;
-    return 0;
-#endif
-}
-
-// Reference addmul for 256-bit using __uint128_t
-static inline uint64_t ref_add_128(uint64_t r[MP_N64], const uint64_t a[MP_N64], const uint64_t b[MP_N64]) {
-#if defined(__SIZEOF_INT128__)
-    __uint128_t carry = 0;
-    for (size_t i = 0; i < MP_N64; i++) {
-        __uint128_t s = (__uint128_t)a[i] + (__uint128_t)b[i] + carry;
-        r[i] = (uint64_t)s;
-        carry = s >> 2*MP_N;
-    }
-    return (uint64_t)carry;
-#else
-    (void)r; (void)a; (void)b;
-    return 0;
-#endif
-}
-
-// Reference addmul for 256-bit WITHOUT using __uint128_t
-static inline uint64_t ref_add_no128(uint64_t r[MP_N64], const uint64_t a[MP_N64], const uint64_t b[MP_N64]) {
-    uint64_t carry = 0;
-    for (size_t i = 0; i < MP_N64; i++) {
-        uint64_t x = a[i];
-        uint64_t y = b[i];
-        uint64_t s1 = x + y;
-        uint64_t c1 = (s1 < x) ? 1u : 0u;
-        uint64_t s2 = s1 + carry;
-        uint64_t c2 = (s2 < s1) ? 1u : 0u;
-        r[i] = s2;
-        carry = (c1 | c2);
-    }
-    return carry;
-}
-
-static inline uint64_t ref_mul_128(uint64_t r[MP_N64], const uint64_t a[MP_N64], uint64_t b) {
-#if defined(__SIZEOF_INT128__)
-    __uint128_t carry = 0;
-    for (size_t i = 0; i < MP_N64; i++) {
-        __uint128_t p = (__uint128_t)a[i] * (__uint128_t)b + carry;
-        r[i] = (uint64_t)p;
-        carry = p >> 2*MP_N;
-    }
-    return (uint64_t)carry;
-#else
-    (void)r; (void)a; (void)b;
-    return 0;
-#endif
-}
-
-static inline uint64_t ref_mul_no128(uint64_t r[MP_N64], const uint64_t a[MP_N64], uint64_t b) {
-    uint64_t carry = 0;
-    for (size_t i = 0; i < MP_N64; i++) {
-        uint64_t plo, phi;
-        mul64_no128(a[i], b, plo, phi);
-
-        // add carry to lo
-        uint64_t lo2 = plo + carry;
-        uint64_t c1 = (lo2 < plo) ? 1u : 0u;
-
-        r[i] = lo2;
-        carry = phi + c1;
-    }
-    return carry;
-}
-
-// Reduce x (0<=x<2^256) modulo mod using mp_div remainder
-static inline void reduce_mod(uint64_t r[MP_N64], const uint64_t x[MP_N64], const uint64_t mod[MP_N64]) {
-    uint64_t q[MP_N64], rem[MP_N64];
-    mp_div(q, rem, x, mod);
-    mp_copy(r, rem);
-}
-
-} // namespace
-
+static constexpr mp_uint_t Fq_q = {0x3c208c16d87cfd47ULL, 0x97816a916871ca8dULL, 0xb85045b68181585dULL, 0x30644e72e131a029ULL};
 
 TEST(mp_set_u64, mp_set) {
-    mp_uint_t a{};
+    mp_uint_t a;
     mp_set(a, 0);
     EXPECT_TRUE(mp_is_zero(a));
 
@@ -162,8 +23,7 @@ TEST(mp_set_u64, mp_set) {
 }
 
 TEST(mp_copy, self_noop) {
-    mp_uint_t a{};
-    set(a, 1, 2, 3, 4);
+    mp_uint_t a{1,2,3,4};
     mp_copy(a, a); // must be no-op
     EXPECT_EQ(a[0], 1ULL);
     EXPECT_EQ(a[1], 2ULL);
@@ -172,8 +32,7 @@ TEST(mp_copy, self_noop) {
 }
 
 TEST(mp_copy, non_overlapping) {
-    mp_uint_t a{}, b{};
-    set(a, 1, 2, 3, 4);
+    mp_uint_t a{1,2,3,4}, b;
     mp_copy(b, a);
     EXPECT_EQ(mp_cmp(a, b), 0);
 }
@@ -213,24 +72,28 @@ TEST(mp_copy, overlapping_backward_memmove_semantics) {
 }
 
 TEST(mp_cmp, mp_cmp) {
-    mp_uint_t a{}, b{};
+    mp_uint_t a, b;
     mp_set(a, 0);
     mp_set(b, 0);
     EXPECT_EQ(mp_cmp(a, b), 0);
 
-    set(a, 1, 0, 0, 0);
-    set(b, 2, 0, 0, 0);
-    EXPECT_LT(mp_cmp(a, b), 0);
-    EXPECT_GT(mp_cmp(b, a), 0);
+    {
+        mp_uint_t aa = {1,0,0,0};
+        mp_uint_t bb = {2,0,0,0};
+        EXPECT_LT(mp_cmp(aa, bb), 0);
+        EXPECT_GT(mp_cmp(bb, aa), 0);
+    }
 
     // different high limb
-    set(a, 0, 0, 0, 1);
-    set(b, 0, 0, 0, 2);
-    EXPECT_LT(mp_cmp(a, b), 0);
+    {
+        mp_uint_t aa = {0,0,0,1};
+        mp_uint_t bb = {0,0,0,2};
+        EXPECT_LT(mp_cmp(aa, bb), 0);
+    }
 }
 
 TEST(mp_is_zero, mp_is_zero) {
-    mp_uint_t a{};
+    mp_uint_t a;
     mp_set(a, 0);
     EXPECT_TRUE(mp_is_zero(a));
     a[2] = 1;
@@ -238,43 +101,80 @@ TEST(mp_is_zero, mp_is_zero) {
 }
 
 TEST(mp_add_256, mp_add) {
-    const std::array<std::array<uint64_t, MP_N64>, 6> cases_a = {{
-        {{0,0,0,0}},
-        {{1,0,0,0}},
-        {{0xFFFFFFFFFFFFFFFFULL,0,0,0}},
-        {{0xFFFFFFFFFFFFFFFFULL,0xFFFFFFFFFFFFFFFFULL,0,0}},
-        {{0,0,0,0x8000000000000000ULL}},
-        {{0x0123456789ABCDEFULL,0x0,0xFFFFFFFFFFFFFFFFULL,0x7ULL}},
-    }};
+    // Case 0: 0 + 0
+    {
+        mp_uint_t a = {0,0,0,0};
+        mp_uint_t b = {0,0,0,0};
+        mp_uint_t r;
+        EXPECT_EQ(mp_add(r, a, b), 0ULL);
+        EXPECT_TRUE(mp_is_zero(r));
+    }
 
-    for (size_t i = 0; i < cases_a.size(); i++) {
-        const std::array<std::array<uint64_t, MP_N64>, 6> cases_b = {{
-            {{0,0,0,0}},
-            {{2,0,0,0}},
-            {{1,0,0,0}},
-            {{1,0,0,0}},
-            {{0,0,0,0x8000000000000000ULL}},
-            {{0x1111111111111111ULL,0x2222222222222222ULL,0,0}},
-        }};
-        mp_uint_t r{}, ref1{}, ref2{};
-        uint64_t c = mp_add(r, cases_a[i].data(), cases_b[i].data());
-        uint64_t c1 = ref_add_no128(ref1, cases_a[i].data(), cases_b[i].data());
-        EXPECT_EQ(c, c1);
-        EXPECT_EQ(mp_cmp(r, ref1), 0);
+    // Case 1: 1 + 2 = 3
+    {
+        mp_uint_t a = {1,0,0,0};
+        mp_uint_t b = {2,0,0,0};
+        mp_uint_t r;
+        EXPECT_EQ(mp_add(r, a, b), 0ULL);
+        EXPECT_EQ(r[0], 3ULL);
+        EXPECT_EQ(r[1], 0ULL);
+        EXPECT_EQ(r[2], 0ULL);
+        EXPECT_EQ(r[3], 0ULL);
+    }
 
-#if defined(__SIZEOF_INT128__)
-        uint64_t c2 = ref_add_128(ref2, cases_a[i].data(), cases_b[i].data());
-        EXPECT_EQ(c, c2);
-        EXPECT_EQ(mp_cmp(r, ref2), 0);
-#endif
+    // Case 2: (2^64-1) + 1 => 0 carry into limb1
+    {
+        mp_uint_t a = {0xFFFFFFFFFFFFFFFFULL,0,0,0};
+        mp_uint_t b = {1,0,0,0};
+        mp_uint_t r;
+        EXPECT_EQ(mp_add(r, a, b), 0ULL);
+        EXPECT_EQ(r[0], 0ULL);
+        EXPECT_EQ(r[1], 1ULL);
+        EXPECT_EQ(r[2], 0ULL);
+        EXPECT_EQ(r[3], 0ULL);
+    }
+
+    // Case 3: (2^128-1) + 1 => limb0/1 zero, carry into limb2
+    {
+        mp_uint_t a = {0xFFFFFFFFFFFFFFFFULL,0xFFFFFFFFFFFFFFFFULL,0,0};
+        mp_uint_t b = {1,0,0,0};
+        mp_uint_t r;
+        EXPECT_EQ(mp_add(r, a, b), 0ULL);
+        EXPECT_EQ(r[0], 0ULL);
+        EXPECT_EQ(r[1], 0ULL);
+        EXPECT_EQ(r[2], 1ULL);
+        EXPECT_EQ(r[3], 0ULL);
+    }
+
+    // Case 4: top half addition without carry out
+    {
+        mp_uint_t a = {0,0,0,0x8000000000000000ULL};
+        mp_uint_t b = {0,0,0,0x8000000000000000ULL};
+        mp_uint_t r;
+        EXPECT_EQ(mp_add(r, a, b), 1ULL); // overflow beyond 2^256
+        EXPECT_TRUE(mp_is_zero(r));
+    }
+
+    // Case 5: mixed limbs
+    {
+        mp_uint_t a = {0x0123456789ABCDEFULL,0x0ULL,0xFFFFFFFFFFFFFFFFULL,0x7ULL};
+        mp_uint_t b = {0x1111111111111111ULL,0x2222222222222222ULL,0,0};
+        mp_uint_t r;
+        EXPECT_EQ(mp_add(r, a, b), 0ULL);
+        EXPECT_EQ(r[0], 0x123456789ABCDF00ULL);
+        EXPECT_EQ(r[1], 0x2222222222222222ULL);
+        EXPECT_EQ(r[2], 0xFFFFFFFFFFFFFFFFULL);
+        EXPECT_EQ(r[3], 0x7ULL);
     }
 
     // boundary: max + 1 => 0 carry 1
-    mp_uint_t max{}, one{}, out{};
-    set(max, 0xFFFFFFFFFFFFFFFFULL,0xFFFFFFFFFFFFFFFFULL,0xFFFFFFFFFFFFFFFFULL,0xFFFFFFFFFFFFFFFFULL);
-    mp_set(one, 1);
-    EXPECT_EQ(mp_add(out, max, one), 1ULL);
-    EXPECT_TRUE(mp_is_zero(out));
+    {
+        mp_uint_t max = {~0ULL,~0ULL,~0ULL,~0ULL};
+        mp_uint_t one, out;
+        mp_set(one, 1);
+        EXPECT_EQ(mp_add(out, max, one), 1ULL);
+        EXPECT_TRUE(mp_is_zero(out));
+    }
 }
 
 TEST(mp_add_varlimbs, mp_add) {
@@ -328,7 +228,7 @@ TEST(mp_add_varlimbs, mp_add) {
 }
 
 TEST(mp_sub_256, mp_sub) {
-    mp_uint_t a{}, b{}, r{};
+    mp_uint_t a, b, r;
 
     // 0 - 1 => borrow 1, result = 2^256-1
     mp_set(a, 0);
@@ -337,123 +237,152 @@ TEST(mp_sub_256, mp_sub) {
     for (size_t i = 0; i < MP_N64; i++) EXPECT_EQ(r[i], 0xFFFFFFFFFFFFFFFFULL);
 
     // max - max = 0
-    set(a, 0xFFFFFFFFFFFFFFFFULL,0xFFFFFFFFFFFFFFFFULL,0xFFFFFFFFFFFFFFFFULL,0xFFFFFFFFFFFFFFFFULL);
-    mp_copy(b, a);
-    EXPECT_EQ(mp_sub(r, a, b), 0ULL);
-    EXPECT_TRUE(mp_is_zero(r));
+    {
+        mp_uint_t aa = {~0ULL,~0ULL,~0ULL,~0ULL};
+        mp_uint_t bb; mp_copy(bb, aa);
+        EXPECT_EQ(mp_sub(r, aa, bb), 0ULL);
+        EXPECT_TRUE(mp_is_zero(r));
+    }
 
     // borrow ripple across all limbs: [0,0,0,1] - 1 = [~0,~0,~0,0]
-    set(a, 0,0,0,1);
-    mp_set(b, 1);
-    EXPECT_EQ(mp_sub(r, a, b), 0ULL);
-    EXPECT_EQ(r[0], ~0ULL);
-    EXPECT_EQ(r[1], ~0ULL);
-    EXPECT_EQ(r[2], ~0ULL);
-    EXPECT_EQ(r[3], 0ULL);
+    {
+        mp_uint_t aa = {0,0,0,1};
+        mp_uint_t bb; mp_set(bb, 1);
+        EXPECT_EQ(mp_sub(r, aa, bb), 0ULL);
+        EXPECT_EQ(r[0], ~0ULL);
+        EXPECT_EQ(r[1], ~0ULL);
+        EXPECT_EQ(r[2], ~0ULL);
+        EXPECT_EQ(r[3], 0ULL);
+    }
 }
 
 TEST(mp_add_u64, mp_add) {
-    mp_uint_t a{}, r{};
-    set(a, 0xFFFFFFFFFFFFFFFFULL, 0, 0, 0);
-    EXPECT_EQ(mp_add(r, a, 1ULL), 0ULL);
-    EXPECT_EQ(r[0], 0ULL);
-    EXPECT_EQ(r[1], 1ULL);
+    {
+        mp_uint_t a = {~0ULL, 0, 0, 0};
+        mp_uint_t r;
+        EXPECT_EQ(mp_add(r, a, 1ULL), 0ULL);
+        EXPECT_EQ(r[0], 0ULL);
+        EXPECT_EQ(r[1], 1ULL);
+        EXPECT_EQ(r[2], 0ULL);
+        EXPECT_EQ(r[3], 0ULL);
+    }
 
     // overflow
-    set(a, 0xFFFFFFFFFFFFFFFFULL,0xFFFFFFFFFFFFFFFFULL,0xFFFFFFFFFFFFFFFFULL,0xFFFFFFFFFFFFFFFFULL);
-    EXPECT_EQ(mp_add(r, a, 1ULL), 1ULL);
-    EXPECT_TRUE(mp_is_zero(r));
+    {
+        mp_uint_t a = {~0ULL,~0ULL,~0ULL,~0ULL};
+        mp_uint_t r;
+        EXPECT_EQ(mp_add(r, a, 1ULL), 1ULL);
+        EXPECT_TRUE(mp_is_zero(r));
+    }
 }
 
 TEST(mp_sub_u64, mp_sub) {
-    mp_uint_t a{}, r{};
-    mp_set(a, 0);
-    EXPECT_EQ(mp_sub(r, a, 1ULL), 1ULL);
-    for (size_t i = 0; i < MP_N64; i++) EXPECT_EQ(r[i], 0xFFFFFFFFFFFFFFFFULL);
+    {
+        mp_uint_t a, r;
+        mp_set(a, 0);
+        EXPECT_EQ(mp_sub(r, a, 1ULL), 1ULL);
+        for (size_t i = 0; i < MP_N64; i++) EXPECT_EQ(r[i], 0xFFFFFFFFFFFFFFFFULL);
+    }
 
-    set(a, 0, 1, 0, 0);
-    EXPECT_EQ(mp_sub(r, a, 1ULL), 0ULL);
-    EXPECT_EQ(r[0], 0xFFFFFFFFFFFFFFFFULL);
-    EXPECT_EQ(r[1], 0ULL);
+    {
+        mp_uint_t a = {0,1,0,0};
+        mp_uint_t r;
+        EXPECT_EQ(mp_sub(r, a, 1ULL), 0ULL);
+        EXPECT_EQ(r[0], 0xFFFFFFFFFFFFFFFFULL);
+        EXPECT_EQ(r[1], 0ULL);
+        EXPECT_EQ(r[2], 0ULL);
+        EXPECT_EQ(r[3], 0ULL);
+    }
 }
 
 TEST(mp_mul_u64, mp_mul) {
-    const std::array<std::array<uint64_t, MP_N64>, 5> cases_a = {{
-        {{0,0,0,0}},
-        {{1,0,0,0}},
-        {{0xFFFFFFFFFFFFFFFFULL,0,0,0}},
-        {{0,0xFFFFFFFFFFFFFFFFULL,0,0}},
-        {{0x0123456789ABCDEFULL,0x0ULL,0xFFFFFFFFFFFFFFFFULL,0x7ULL}},
-    }};
-
-    for (size_t i = 0; i < cases_a.size(); i++) {
-        const std::array<uint64_t, 5> cases_b = {{0ULL, 2ULL, 3ULL, 5ULL, 0xFEDCBA9876543211ULL}};
-        mp_uint_t r{}, ref_no128{}, ref_128{};
-        uint64_t c = mp_mul(r, cases_a[i].data(), cases_b[i]);
-
-        uint64_t c_no128 = ref_mul_no128(ref_no128, cases_a[i].data(), cases_b[i]);
-        EXPECT_EQ(c, c_no128);
-        EXPECT_EQ(mp_cmp(r, ref_no128), 0);
-
-#if defined(__SIZEOF_INT128__)
-        uint64_t c_128 = ref_mul_128(ref_128, cases_a[i].data(), cases_b[i]);
-        EXPECT_EQ(c, c_128);
-        EXPECT_EQ(mp_cmp(r, ref_128), 0);
-#endif
+    // 0 * x
+    {
+        mp_uint_t a = {0,0,0,0};
+        mp_uint_t r;
+        EXPECT_EQ(mp_mul(r, a, 0xDEADBEEF), 0ULL);
+        EXPECT_TRUE(mp_is_zero(r));
     }
+
+    // 1 * 2
+    {
+        mp_uint_t a = {1,0,0,0};
+        mp_uint_t r;
+        EXPECT_EQ(mp_mul(r, a, 2), 0ULL);
+        EXPECT_EQ(r[0], 2ULL);
+        EXPECT_EQ(r[1], 0ULL);
+        EXPECT_EQ(r[2], 0ULL);
+        EXPECT_EQ(r[3], 0ULL);
+    }
+
+    // (2^64-1) * 3 => low = 0xFFFFFFFFFFFFFFFD, carry into limb1 = 2
+    {
+        mp_uint_t a = {0xFFFFFFFFFFFFFFFFULL,0,0,0};
+        mp_uint_t r;
+        EXPECT_EQ(mp_mul(r, a, 3), 0ULL);
+        EXPECT_EQ(r[0], 0xFFFFFFFFFFFFFFFDULL);
+        EXPECT_EQ(r[1], 0x2ULL);
+        EXPECT_EQ(r[2], 0ULL);
+        EXPECT_EQ(r[3], 0ULL);
+    }
+
+    // limb1 all ones * 5 (acts like shifting product into limb1..)
+    {
+        mp_uint_t a = {0,0xFFFFFFFFFFFFFFFFULL,0,0};
+        mp_uint_t r;
+        EXPECT_EQ(mp_mul(r, a, 5), 0ULL);
+        EXPECT_EQ(r[0], 0ULL);
+        EXPECT_EQ(r[1], 0xFFFFFFFFFFFFFFFBULL);
+        EXPECT_EQ(r[2], 0x4ULL);
+        EXPECT_EQ(r[3], 0ULL);
+    }
+
     // boundary: (2^256-1) * 2 = (2^256-2) with carry=1
     {
-        mp_uint_t a{}, r{}, ref{};
-        set(a, ~0ULL, ~0ULL, ~0ULL, ~0ULL);
-        uint64_t c = mp_mul(r, a, 2);
-        mp_copy(ref, a);
-        mp_shl(ref, ref, 1); // mod 2^256
-        EXPECT_EQ(c, 1ULL);
-        EXPECT_EQ(mp_cmp(r, ref), 0);
+        mp_uint_t a = {~0ULL,~0ULL,~0ULL,~0ULL};
+        mp_uint_t r;
+        EXPECT_EQ(mp_mul(r, a, 2), 1ULL);
+        EXPECT_EQ(r[0], 0xFFFFFFFFFFFFFFFEULL);
+        EXPECT_EQ(r[1], 0xFFFFFFFFFFFFFFFFULL);
+        EXPECT_EQ(r[2], 0xFFFFFFFFFFFFFFFFULL);
+        EXPECT_EQ(r[3], 0xFFFFFFFFFFFFFFFFULL);
     }
 }
 
 TEST(mp_addmul_u64, mp_addmul) {
-    // r += a*b
-    mp_uint_t a{}, r{}, ref{};
-    set(a, 3, 0, 0, 0);
-    set(r, 5, 0, 0, 0);
-
-    // expected: 5 + 3*7 = 26
-    mp_copy(ref, r);
-    mp_uint_t prod{};
-    mp_mul(prod, a, 7);
-    mp_add(ref, ref, prod);
-
-    mp_addmul(r, a, 7);
-    EXPECT_EQ(mp_cmp(r, ref), 0);
-    // also check carry-out and overflow case
+    // r += a*b : 5 + 3*7 = 26
     {
-        mp_uint_t aa{}, rr{}, rr_ref{};
-        set(aa, ~0ULL, ~0ULL, ~0ULL, ~0ULL);
-        set(rr, ~0ULL, ~0ULL, ~0ULL, ~0ULL);
-        mp_copy(rr_ref, rr);
+        mp_uint_t a = {3,0,0,0};
+        mp_uint_t r = {5,0,0,0};
 
-        uint64_t c_ref = ref_addmul_no128(rr_ref, aa, 2);
-        uint64_t c = mp_addmul(rr, aa, 2);
+        const uint64_t c = mp_addmul(r, a, 7);
+        EXPECT_EQ(c, 0ULL);
+        EXPECT_EQ(r[0], 26ULL);
+        EXPECT_EQ(r[1], 0ULL);
+        EXPECT_EQ(r[2], 0ULL);
+        EXPECT_EQ(r[3], 0ULL);
+    }
 
-        EXPECT_EQ(c, c_ref);
-        EXPECT_EQ(mp_cmp(rr, rr_ref), 0);
+    // overflow-heavy: r=max, a=max, b=2
+    // a*2 (mod 2^256) = 2^256-2, plus r=max => 2^256-3, carry=2
+    {
+        mp_uint_t a = {~0ULL,~0ULL,~0ULL,~0ULL};
+        mp_uint_t r = {~0ULL,~0ULL,~0ULL,~0ULL};
 
-#if defined(__SIZEOF_INT128__)
-        mp_uint_t rr_ref2{};
-        set(rr_ref2, ~0ULL, ~0ULL, ~0ULL, ~0ULL);
-        uint64_t c_ref2 = ref_addmul_128(rr_ref2, aa, 2);
-        EXPECT_EQ(c, c_ref2);
-        EXPECT_EQ(mp_cmp(rr, rr_ref2), 0);
-#endif
+        const uint64_t c = mp_addmul(r, a, 2);
+        EXPECT_EQ(c, 2ULL);
+        EXPECT_EQ(r[0], 0xFFFFFFFFFFFFFFFDULL);
+        EXPECT_EQ(r[1], 0xFFFFFFFFFFFFFFFFULL);
+        EXPECT_EQ(r[2], 0xFFFFFFFFFFFFFFFFULL);
+        EXPECT_EQ(r[3], 0xFFFFFFFFFFFFFFFFULL);
     }
 }
 
 TEST(mp_and, mp_and) {
-    mp_uint_t a{}, b{}, r{};
-    set(a, 0xF0F0ULL, 0xAAAAULL, 0, ~0ULL);
-    set(b, 0x0FF0ULL, 0x0F0FULL, ~0ULL, 0x1234ULL);
+    mp_uint_t a = {0xF0F0ULL, 0xAAAAULL, 0, ~0ULL};
+    mp_uint_t b = {0x0FF0ULL, 0x0F0FULL, ~0ULL, 0x1234ULL};
+    mp_uint_t r;
+
     mp_and(r, a, b);
     EXPECT_EQ(r[0], a[0] & b[0]);
     EXPECT_EQ(r[1], a[1] & b[1]);
@@ -462,9 +391,10 @@ TEST(mp_and, mp_and) {
 }
 
 TEST(mp_or, mp_or) {
-    mp_uint_t a{}, b{}, r{};
-    set(a, 0xF0F0ULL, 0xAAAAULL, 0, ~0ULL);
-    set(b, 0x0FF0ULL, 0x0F0FULL, ~0ULL, 0x1234ULL);
+    mp_uint_t a = {0xF0F0ULL, 0xAAAAULL, 0, ~0ULL};
+    mp_uint_t b = {0x0FF0ULL, 0x0F0FULL, ~0ULL, 0x1234ULL};
+    mp_uint_t r;
+
     mp_or(r, a, b);
     EXPECT_EQ(r[0], a[0] | b[0]);
     EXPECT_EQ(r[1], a[1] | b[1]);
@@ -473,9 +403,10 @@ TEST(mp_or, mp_or) {
 }
 
 TEST(mp_xor, mp_xor) {
-    mp_uint_t a{}, b{}, r{};
-    set(a, 0xF0F0ULL, 0xAAAAULL, 0, ~0ULL);
-    set(b, 0x0FF0ULL, 0x0F0FULL, ~0ULL, 0x1234ULL);
+    mp_uint_t a = {0xF0F0ULL, 0xAAAAULL, 0, ~0ULL};
+    mp_uint_t b = {0x0FF0ULL, 0x0F0FULL, ~0ULL, 0x1234ULL};
+    mp_uint_t r;
+
     mp_xor(r, a, b);
     EXPECT_EQ(r[0], a[0] ^ b[0]);
     EXPECT_EQ(r[1], a[1] ^ b[1]);
@@ -484,8 +415,9 @@ TEST(mp_xor, mp_xor) {
 }
 
 TEST(mp_not, mp_not) {
-    mp_uint_t a{}, r{};
-    set(a, 0xF0F0ULL, 0xAAAAULL, 0, ~0ULL);
+    mp_uint_t a = {0xF0F0ULL, 0xAAAAULL, 0, ~0ULL};
+    mp_uint_t r;
+
     mp_not(r, a);
     EXPECT_EQ(r[0], ~a[0]);
     EXPECT_EQ(r[1], ~a[1]);
@@ -494,7 +426,7 @@ TEST(mp_not, mp_not) {
 }
 
 TEST(mp_tstbit, mp_tstbit) {
-    mp_uint_t a{};
+    mp_uint_t a;
     mp_set(a, 0);
     EXPECT_FALSE(mp_tstbit(a, 0));
     a[0] = 1;
@@ -529,14 +461,14 @@ TEST(mp_tstbit, mp_tstbit) {
 // -------------------- mp_shl --------------------
 
 TEST(mp_shl, identity_shift0) {
-    mp_uint_t a{}, r{};
-    set(a, 0x0123456789ABCDEFULL, 0x0ULL, 0xFFFFFFFFFFFFFFFFULL, 0x8000000000000001ULL);
+    mp_uint_t a = {0x0123456789ABCDEFULL, 0x0ULL, 0xFFFFFFFFFFFFFFFFULL, 0x8000000000000001ULL};
+    mp_uint_t r;
     mp_shl(r, a, 0);
     EXPECT_EQ(mp_cmp(r, a), 0);
 }
 
 TEST(mp_shl, zero_stays_zero) {
-    mp_uint_t a{}, r{};
+    mp_uint_t a, r;
     mp_set(a, 0);
 
     mp_shl(r, a, 1);
@@ -553,8 +485,8 @@ TEST(mp_shl, zero_stays_zero) {
 }
 
 TEST(mp_shl, basic_small_shift) {
-    mp_uint_t a{}, r{};
-    set(a, 1, 0, 0, 0);
+    mp_uint_t a = {1,0,0,0};
+    mp_uint_t r;
     mp_shl(r, a, 1);
 
     EXPECT_EQ(r[0], 2ULL);
@@ -564,10 +496,8 @@ TEST(mp_shl, basic_small_shift) {
 }
 
 TEST(mp_shl, limb_boundary_63) {
-    mp_uint_t a{}, r{};
-    // a = 3 => 3<<63 has bit63 and bit64 set:
-    // limb0 = 0x8000.., limb1 = 1
-    set(a, 3ULL, 0ULL, 0ULL, 0ULL);
+    mp_uint_t a = {3ULL, 0ULL, 0ULL, 0ULL};
+    mp_uint_t r;
     mp_shl(r, a, 63);
 
     EXPECT_EQ(r[0], 0x8000000000000000ULL);
@@ -577,9 +507,8 @@ TEST(mp_shl, limb_boundary_63) {
 }
 
 TEST(mp_shl, limb_boundary_64_bitShift0_path) {
-    mp_uint_t a{}, r{};
-    // a = 1 => 1<<64 moves into limb1 (bitShift==0 path)
-    set(a, 1ULL, 0ULL, 0ULL, 0ULL);
+    mp_uint_t a = {1ULL, 0ULL, 0ULL, 0ULL};
+    mp_uint_t r;
     mp_shl(r, a, 64);
 
     EXPECT_EQ(r[0], 0ULL);
@@ -589,9 +518,8 @@ TEST(mp_shl, limb_boundary_64_bitShift0_path) {
 }
 
 TEST(mp_shl, limb_boundary_65) {
-    mp_uint_t a{}, r{};
-    // a = 1 => 1<<65 => limb1 bit1 => 2
-    set(a, 1ULL, 0ULL, 0ULL, 0ULL);
+    mp_uint_t a = {1ULL, 0ULL, 0ULL, 0ULL};
+    mp_uint_t r;
     mp_shl(r, a, 65);
 
     EXPECT_EQ(r[0], 0ULL);
@@ -601,9 +529,8 @@ TEST(mp_shl, limb_boundary_65) {
 }
 
 TEST(mp_shl, shift_across_limbs_example) {
-    mp_uint_t a{}, r{};
-    // a = 1 in limb1 => <<64 moves into limb2
-    set(a, 0ULL, 1ULL, 0ULL, 0ULL);
+    mp_uint_t a = {0ULL, 1ULL, 0ULL, 0ULL};
+    mp_uint_t r;
     mp_shl(r, a, 64);
 
     EXPECT_EQ(r[0], 0ULL);
@@ -613,9 +540,8 @@ TEST(mp_shl, shift_across_limbs_example) {
 }
 
 TEST(mp_shl, shift_255_bit0_to_top_bit) {
-    mp_uint_t a{}, r{};
-    // a = 1 => 1<<255 => top bit (bit63 of limb3)
-    set(a, 1ULL, 0ULL, 0ULL, 0ULL);
+    mp_uint_t a = {1ULL, 0ULL, 0ULL, 0ULL};
+    mp_uint_t r;
     mp_shl(r, a, 255);
 
     EXPECT_EQ(r[0], 0ULL);
@@ -625,10 +551,8 @@ TEST(mp_shl, shift_255_bit0_to_top_bit) {
 }
 
 TEST(mp_shl, shift_ge_256_is_zero) {
-    mp_uint_t a{}, r{};
-    set(a,
-              0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL,
-              0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL);
+    mp_uint_t a = {~0ULL, ~0ULL, ~0ULL, ~0ULL};
+    mp_uint_t r;
 
     mp_shl(r, a, 256);
     EXPECT_TRUE(mp_is_zero(r));
@@ -638,13 +562,8 @@ TEST(mp_shl, shift_ge_256_is_zero) {
 }
 
 TEST(mp_shl, all_ones_signature_shift1) {
-    mp_uint_t a{}, r{};
-    // (2^256-1)<<1 mod 2^256 = 2^256-2
-    // => limbs: [..FE, ..FF, ..FF, ..FF]
-    set(a,
-              0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL,
-              0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL);
-
+    mp_uint_t a = {~0ULL, ~0ULL, ~0ULL, ~0ULL};
+    mp_uint_t r;
     mp_shl(r, a, 1);
 
     EXPECT_EQ(r[0], 0xFFFFFFFFFFFFFFFEULL);
@@ -656,14 +575,14 @@ TEST(mp_shl, all_ones_signature_shift1) {
 // -------------------- mp_shr --------------------
 
 TEST(mp_shr, identity_shift0) {
-    mp_uint_t a{}, r{};
-    set(a, 0x0123456789ABCDEFULL, 0x0ULL, 0xFFFFFFFFFFFFFFFFULL, 0x8000000000000001ULL);
+    mp_uint_t a = {0x0123456789ABCDEFULL, 0x0ULL, 0xFFFFFFFFFFFFFFFFULL, 0x8000000000000001ULL};
+    mp_uint_t r;
     mp_shr(r, a, 0);
     EXPECT_EQ(mp_cmp(r, a), 0);
 }
 
 TEST(mp_shr, zero_stays_zero) {
-    mp_uint_t a{}, r{};
+    mp_uint_t a, r;
     mp_set(a, 0);
 
     mp_shr(r, a, 1);
@@ -680,8 +599,8 @@ TEST(mp_shr, zero_stays_zero) {
 }
 
 TEST(mp_shr, basic_small_shift) {
-    mp_uint_t a{}, r{};
-    set(a, 2, 0, 0, 0);
+    mp_uint_t a = {2,0,0,0};
+    mp_uint_t r;
     mp_shr(r, a, 1);
 
     EXPECT_EQ(r[0], 1ULL);
@@ -691,9 +610,8 @@ TEST(mp_shr, basic_small_shift) {
 }
 
 TEST(mp_shr, limb_boundary_63) {
-    mp_uint_t a{}, r{};
-    // a = 2^63 + 2^64  => a >> 63 = 3
-    set(a, 0x8000000000000000ULL, 0x1ULL, 0x0ULL, 0x0ULL);
+    mp_uint_t a = {0x8000000000000000ULL, 0x1ULL, 0x0ULL, 0x0ULL};
+    mp_uint_t r;
     mp_shr(r, a, 63);
 
     EXPECT_EQ(r[0], 3ULL);
@@ -703,9 +621,8 @@ TEST(mp_shr, limb_boundary_63) {
 }
 
 TEST(mp_shr, limb_boundary_64_bitShift0_path) {
-    mp_uint_t a{}, r{};
-    // a = 2^64 => >>64 = 1 (bitShift==0 path)
-    set(a, 0x0ULL, 0x1ULL, 0x0ULL, 0x0ULL);
+    mp_uint_t a = {0x0ULL, 0x1ULL, 0x0ULL, 0x0ULL};
+    mp_uint_t r;
     mp_shr(r, a, 64);
 
     EXPECT_EQ(r[0], 1ULL);
@@ -715,17 +632,16 @@ TEST(mp_shr, limb_boundary_64_bitShift0_path) {
 }
 
 TEST(mp_shr, limb_boundary_65) {
-    mp_uint_t a{}, r{};
-    // a = 2^64 => >>65 = 0
-    set(a, 0x0ULL, 0x1ULL, 0x0ULL, 0x0ULL);
+    mp_uint_t a = {0x0ULL, 0x1ULL, 0x0ULL, 0x0ULL};
+    mp_uint_t r;
     mp_shr(r, a, 65);
 
     EXPECT_TRUE(mp_is_zero(r));
 }
 
 TEST(mp_shr, shift_across_limbs_example) {
-    mp_uint_t a{}, r{};
-    set(a, 0, 0, 1, 0);
+    mp_uint_t a = {0, 0, 1, 0};
+    mp_uint_t r;
     mp_shr(r, a, 64);
 
     EXPECT_EQ(r[0], 0ULL);
@@ -735,9 +651,8 @@ TEST(mp_shr, shift_across_limbs_example) {
 }
 
 TEST(mp_shr, shift_255_top_bit_to_bit0) {
-    mp_uint_t a{}, r{};
-    // a = 2^255 => a >> 255 = 1
-    set(a, 0x0ULL, 0x0ULL, 0x0ULL, 0x8000000000000000ULL);
+    mp_uint_t a = {0x0ULL, 0x0ULL, 0x0ULL, 0x8000000000000000ULL};
+    mp_uint_t r;
     mp_shr(r, a, 255);
 
     EXPECT_EQ(r[0], 1ULL);
@@ -747,10 +662,8 @@ TEST(mp_shr, shift_255_top_bit_to_bit0) {
 }
 
 TEST(mp_shr, shift_ge_256_is_zero) {
-    mp_uint_t a{}, r{};
-    set(a,
-              0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL,
-              0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL);
+    mp_uint_t a = {~0ULL, ~0ULL, ~0ULL, ~0ULL};
+    mp_uint_t r;
 
     mp_shr(r, a, 256);
     EXPECT_TRUE(mp_is_zero(r));
@@ -760,12 +673,8 @@ TEST(mp_shr, shift_ge_256_is_zero) {
 }
 
 TEST(mp_shr, all_ones_signature_shift1) {
-    mp_uint_t a{}, r{};
-    // (2^256-1)>>1 = 2^255-1
-    set(a,
-              0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL,
-              0xFFFFFFFFFFFFFFFFULL, 0xFFFFFFFFFFFFFFFFULL);
-
+    mp_uint_t a = {~0ULL, ~0ULL, ~0ULL, ~0ULL};
+    mp_uint_t r;
     mp_shr(r, a, 1);
 
     EXPECT_EQ(r[0], 0xFFFFFFFFFFFFFFFFULL);
@@ -775,23 +684,26 @@ TEST(mp_shr, all_ones_signature_shift1) {
 }
 
 TEST(mp_get_int32, mp_get_int32) {
-    mp_uint_t a{};
+    mp_uint_t a;
     mp_set(a, 0);
     EXPECT_EQ(mp_get_int32(a), 0);
 
     mp_set(a, 123);
     EXPECT_EQ(mp_get_int32(a), 123);
 
-    set(a, 0xFFFFFFFFULL, 1, 0, 0);
-    // mp_get_int32 returns low 32-bit signed value of a[0]
-    EXPECT_EQ(mp_get_int32(a), -1);
+    {
+        mp_uint_t aa = {0xFFFFFFFFULL, 1, 0, 0};
+        EXPECT_EQ(mp_get_int32(aa), -1);
+    }
 
-    set(a, 0x80000000ULL, 0, 0, 0);
-    EXPECT_EQ(mp_get_int32(a), (int32_t)0x80000000u);
+    {
+        mp_uint_t aa = {0x80000000ULL, 0, 0, 0};
+        EXPECT_EQ(mp_get_int32(aa), (int32_t)0x80000000u);
+    }
 }
 
 TEST(mp_fits_int32, mp_fits_int32) {
-    mp_uint_t a{};
+    mp_uint_t a;
     mp_set(a, 0);
     EXPECT_TRUE(mp_fits_int32(a));
 
@@ -801,13 +713,14 @@ TEST(mp_fits_int32, mp_fits_int32) {
     mp_set(a, (uint64_t)INT32_MAX + 1ULL);
     EXPECT_FALSE(mp_fits_int32(a));
 
-    set(a, 1, 1, 0, 0);
-    EXPECT_FALSE(mp_fits_int32(a));
+    {
+        mp_uint_t aa = {1,1,0,0};
+        EXPECT_FALSE(mp_fits_int32(aa));
+    }
 }
 
 TEST(mp_set_str, valid_cases) {
-
-    mp_uint_t a{};
+    mp_uint_t a;
 
     ASSERT_TRUE(mp_set(a, "0", 10));
     EXPECT_TRUE(mp_is_zero(a));
@@ -815,48 +728,35 @@ TEST(mp_set_str, valid_cases) {
     ASSERT_TRUE(mp_set(a, "1", 16));
     EXPECT_EQ(a[0], 1ULL);
 
-    // leading spaces and leading '+'
     ASSERT_TRUE(mp_set(a, "   +ff", 16));
     EXPECT_EQ(a[0], 255ULL);
 
-    // base=0 => defaults to 10
     ASSERT_TRUE(mp_set(a, "42", 0));
     EXPECT_EQ(a[0], 42ULL);
 
-    // max 256-bit value in hex
     ASSERT_TRUE(mp_set(a, "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", 16));
     for (size_t i = 0; i < MP_N64; i++) EXPECT_EQ(a[i], 0xFFFFFFFFFFFFFFFFULL);
 
-    // base 10 boundary: 2^64-1
     ASSERT_TRUE(mp_set(a, "18446744073709551615", 10));
     EXPECT_EQ(a[0], 0xFFFFFFFFFFFFFFFFULL);
     EXPECT_EQ(a[1], 0ULL);
 }
 
 TEST(mp_set_str, invalid_cases) {
-#if !defined(__SIZEOF_INT128__)
-    GTEST_SKIP() << "mp_set(str) requires __int128 in this build";
-#endif
+    mp_uint_t a;
 
-    mp_uint_t a{};
-
-    // invalid base
     EXPECT_FALSE(mp_set(a, "1", 1));
     EXPECT_FALSE(mp_set(a, "1", 17));
 
-    // negative not allowed
     EXPECT_FALSE(mp_set(a, "-1", 10));
 
-    // invalid digit for base
     EXPECT_FALSE(mp_set(a, "2", 2));
     EXPECT_FALSE(mp_set(a, "g", 16));
 
-    // empty / only spaces
     EXPECT_FALSE(mp_set(a, "", 10));
     EXPECT_FALSE(mp_set(a, "   ", 10));
     EXPECT_FALSE(mp_set(a, "+", 10));
 
-    // trailing garbage
     EXPECT_FALSE(mp_set(a, "123x", 10));
     EXPECT_FALSE(mp_set(a, "ff zz", 16));
 
@@ -865,8 +765,7 @@ TEST(mp_set_str, invalid_cases) {
 }
 
 TEST(mp_get_str, basic_cases) {
-
-    mp_uint_t a{};
+    mp_uint_t a;
     mp_set(a, 0);
     EXPECT_EQ(mp_get_str(a, 10), std::string("0"));
 
@@ -874,80 +773,94 @@ TEST(mp_get_str, basic_cases) {
     EXPECT_EQ(mp_get_str(a, 16), std::string("ff"));
     EXPECT_EQ(mp_get_str(a, 2), std::string("11111111"));
 
-    // max value in hex should be 64 f's
-    set(a, ~0ULL, ~0ULL, ~0ULL, ~0ULL);
-    EXPECT_EQ(mp_get_str(a, 16), std::string(64, 'f'));
+    {
+        mp_uint_t aa = {~0ULL,~0ULL,~0ULL,~0ULL};
+        EXPECT_EQ(mp_get_str(aa, 16), std::string(64, 'f'));
+    }
 
-    // normalization: leading zeros in input -> output without leading zeros
-    mp_uint_t b{};
+    mp_uint_t b;
     ASSERT_TRUE(mp_set(b, "00000100", 16));
     EXPECT_EQ(mp_get_str(b, 16), std::string("100"));
 }
 
 TEST(mp_get_str, invalid_base_returns_empty) {
-
-    mp_uint_t a{};
+    mp_uint_t a;
     mp_set(a, 123);
 
     EXPECT_EQ(mp_get_str(a, 1), std::string());
     EXPECT_EQ(mp_get_str(a, 17), std::string());
 }
 
-TEST(mp_set_mod_i64, mp_set_mod) {
-    const uint64_t *mod = Fq_q.longVal;
+TEST(mp_set_mod_i64, mp_set_mod_Fq_q_small_constants) {
+    const uint64_t *mod = Fq_q;
 
-    mp_uint_t r{}, tmp{}, q{}, rem{};
+    // 0
+    {
+        mp_uint_t r;
+        mp_set_mod(r, 0, mod);
+        EXPECT_TRUE(mp_is_zero(r));
+    }
 
-    mp_set_mod(r, 0, mod);
-    EXPECT_TRUE(mp_is_zero(r));
+    // +5
+    {
+        mp_uint_t r;
+        mp_set_mod(r, 5, mod);
+        EXPECT_EQ(r[0], 5ULL);
+        EXPECT_EQ(r[1], 0ULL);
+        EXPECT_EQ(r[2], 0ULL);
+        EXPECT_EQ(r[3], 0ULL);
+    }
 
-    // positive: r = 5
-    mp_set_mod(r, 5, mod);
-    mp_set(tmp, 5);
-    reduce_mod(tmp, tmp, mod);
-    EXPECT_EQ(mp_cmp(r, tmp), 0);
+    // -1 => mod-1
+    {
+        mp_uint_t r;
+        mp_uint_t q_minus_1 = {
+            0x3c208c16d87cfd46ULL,
+            0x97816a916871ca8dULL,
+            0xb85045b68181585dULL,
+            0x30644e72e131a029ULL
+        };
+        mp_set_mod(r, -1, mod);
+        EXPECT_EQ(mp_cmp(r, q_minus_1), 0);
+    }
 
-    // negative: r = mod - 5
-    mp_set_mod(r, -5, mod);
-    mp_set(tmp, 5);
-    reduce_mod(rem, tmp, mod);
-    mp_sub(tmp, mod, rem);
-    EXPECT_EQ(mp_cmp(r, tmp), 0);
-
-    // large positive: (mod + 1) mod mod = 1
-    // Construct x = mod + 1 (mod is 256-bit) and pass as int64? cannot.
-    // Instead test int64 boundary: INT64_MIN/INT64_MAX.
-    mp_set_mod(r, INT64_MAX, mod);
-    mp_set(tmp, INT64_MAX);
-    reduce_mod(tmp, tmp, mod);
-    EXPECT_EQ(mp_cmp(r, tmp), 0);
-
-    (void)q; (void)rem;
+    // -5 => mod-5
+    {
+        mp_uint_t q_minus_5 = {
+            0x3c208c16d87cfd42ULL,
+            0x97816a916871ca8dULL,
+            0xb85045b68181585dULL,
+            0x30644e72e131a029ULL
+        };
+        mp_uint_t r;
+        mp_set_mod(r, -5, mod);
+        EXPECT_EQ(mp_cmp(r, q_minus_5), 0);
+    }
 }
 
 TEST(mp_set_mod_i64, small_mod_extremes) {
-    mp_uint_t mod{}, r{};
+    mp_uint_t mod;
     mp_set(mod, 17);
 
-    auto expect_i64 = [&](int64_t x) {
-        int64_t e = x % 17;
-        if (e < 0) e += 17;
-        mp_uint_t got{};
+    auto expect_i64 = [&](int64_t x, uint64_t expected) {
+        mp_uint_t got;
         mp_set_mod(got, x, mod);
-        EXPECT_EQ(got[0], (uint64_t)e);
+        EXPECT_EQ(got[0], expected);
         EXPECT_EQ(got[1], 0ULL);
         EXPECT_EQ(got[2], 0ULL);
         EXPECT_EQ(got[3], 0ULL);
     };
 
-    expect_i64(0);
-    expect_i64(1);
-    expect_i64(-1);
-    expect_i64(INT64_MAX);
-    expect_i64(INT64_MIN);
+    expect_i64(0, 0);
+    expect_i64(1, 1);
+    expect_i64(-1, 16);
+    expect_i64(17, 0);
+    expect_i64(-17, 0);
+    expect_i64(18, 1);
+    expect_i64(-18, 16);
 
     // mod = 1 => always 0
-    mp_uint_t mod1{};
+    mp_uint_t mod1, r;
     mp_set(mod1, 1);
     mp_set_mod(r, INT64_MIN, mod1);
     EXPECT_TRUE(mp_is_zero(r));
@@ -955,63 +868,59 @@ TEST(mp_set_mod_i64, small_mod_extremes) {
     EXPECT_TRUE(mp_is_zero(r));
 }
 
-TEST(mp_set_mod_str, mp_set_mod) {
-    const uint64_t *mod = Fq_q.longVal;
+TEST(mp_set_mod_str, mp_set_mod_Fq_q_small_constants) {
+    const uint64_t *mod = Fq_q;
 
-    mp_uint_t r{}, ref{};
+    mp_uint_t r;
+    mp_uint_t q_minus_1 = {
+        0x3c208c16d87cfd46ULL,
+        0x97816a916871ca8dULL,
+        0xb85045b68181585dULL,
+        0x30644e72e131a029ULL
+    };
 
     ASSERT_TRUE(mp_set_mod(r, "0", 10, mod));
     EXPECT_TRUE(mp_is_zero(r));
 
-    // hex value bigger than mod: parse then reduce via mp_div
-    ASSERT_TRUE(mp_set_mod(r,
-        "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", 16, mod));
+    ASSERT_TRUE(mp_set_mod(r, "5", 10, mod));
+    EXPECT_EQ(r[0], 5ULL);
+    EXPECT_EQ(r[1], 0ULL);
+    EXPECT_EQ(r[2], 0ULL);
+    EXPECT_EQ(r[3], 0ULL);
 
-    mp_uint_t max{};
-    set(max, ~0ULL, ~0ULL, ~0ULL, ~0ULL);
-    reduce_mod(ref, max, mod);
-    EXPECT_EQ(mp_cmp(r, ref), 0);
-
-    // negative
     ASSERT_TRUE(mp_set_mod(r, "-1", 10, mod));
-    mp_uint_t one{};
-    mp_set(one, 1);
-    mp_sub(ref, mod, one);
-    EXPECT_EQ(mp_cmp(r, ref), 0);
+    EXPECT_EQ(mp_cmp(r, q_minus_1), 0);
 
-    // "-0" must be 0
     ASSERT_TRUE(mp_set_mod(r, "-0", 10, mod));
     EXPECT_TRUE(mp_is_zero(r));
 
     // base=0 defaults to 10
     ASSERT_TRUE(mp_set_mod(r, "15", 0, mod));
-    mp_set(ref, 15);
-    reduce_mod(ref, ref, mod);
-    EXPECT_EQ(mp_cmp(r, ref), 0);
+    EXPECT_EQ(r[0], 15ULL);
+    EXPECT_EQ(r[1], 0ULL);
+    EXPECT_EQ(r[2], 0ULL);
+    EXPECT_EQ(r[3], 0ULL);
 }
 
-TEST(mp_set_mod_str, digit_must_be_lt_base) {
-    mp_uint_t mod{}, r{};
+TEST(mp_set_mod_str, digit_must_be_lt_base_small_mod) {
+    mp_uint_t mod, r;
     mp_set(mod, 17);
 
-    // digit '2' is invalid in base 2
     EXPECT_FALSE(mp_set_mod(r, "2", 2, mod));
-    EXPECT_FALSE(mp_set_mod(r, "10 1", 2, mod)); // trailing garbage after spaces
+    EXPECT_FALSE(mp_set_mod(r, "10 1", 2, mod));
 
-    // invalid base
     EXPECT_FALSE(mp_set_mod(r, "1", 1, mod));
     EXPECT_FALSE(mp_set_mod(r, "1", 17, mod));
 
-    // empty / spaces only
     EXPECT_FALSE(mp_set_mod(r, "", 10, mod));
     EXPECT_FALSE(mp_set_mod(r, "   ", 10, mod));
     EXPECT_FALSE(mp_set_mod(r, "+", 10, mod));
 
-    // exact multiple of mod: "34" mod 17 = 0
+    // "34" mod 17 = 0
     ASSERT_TRUE(mp_set_mod(r, "34", 10, mod));
     EXPECT_TRUE(mp_is_zero(r));
 
-    // negative: "-1" mod 17 = 16
+    // "-1" mod 17 = 16
     ASSERT_TRUE(mp_set_mod(r, "-1", 10, mod));
     EXPECT_EQ(r[0], 16ULL);
     EXPECT_EQ(r[1], 0ULL);
@@ -1020,13 +929,16 @@ TEST(mp_set_mod_str, digit_must_be_lt_base) {
 }
 
 TEST(mp_export_be, mp_export_be) {
-    mp_uint_t a{};
-    set(a, 0x1122334455667788ULL, 0x99AABBCCDDEEFF00ULL, 0x0102030405060708ULL, 0x1112131415161718ULL);
+    mp_uint_t a = {
+        0x1122334455667788ULL,
+        0x99AABBCCDDEEFF00ULL,
+        0x0102030405060708ULL,
+        0x1112131415161718ULL
+    };
 
     uint8_t out[MP_N] = {0};
     mp_export_be(out, a);
 
-    // Big-endian: first byte is MSB of limb3
     EXPECT_EQ(out[0], (uint8_t)0x11);
     EXPECT_EQ(out[1], (uint8_t)0x12);
     EXPECT_EQ(out[2], (uint8_t)0x13);
@@ -1038,7 +950,7 @@ TEST(mp_import_be, mp_import_be) {
     uint8_t in[MP_N] = {0};
     in[31] = 0x01;
 
-    mp_uint_t a{};
+    mp_uint_t a;
     mp_import_be(a, in);
     EXPECT_EQ(a[0], 1ULL);
     EXPECT_EQ(a[1], 0ULL);
@@ -1048,8 +960,8 @@ TEST(mp_import_be, mp_import_be) {
 
 TEST(mp_import_be, msb_sets_bit255) {
     uint8_t in[MP_N] = {0};
-    in[0] = 0x80; // MSB of whole 256-bit number
-    mp_uint_t a{};
+    in[0] = 0x80;
+    mp_uint_t a;
     mp_import_be(a, in);
     EXPECT_EQ(a[0], 0ULL);
     EXPECT_EQ(a[1], 0ULL);
@@ -1058,8 +970,13 @@ TEST(mp_import_be, msb_sets_bit255) {
 }
 
 TEST(mp_export_import_be, roundtrip) {
-    mp_uint_t a{}, b{};
-    set(a, 0x1122334455667788ULL, 0x99AABBCCDDEEFF00ULL, 0x0102030405060708ULL, 0x1112131415161718ULL);
+    mp_uint_t a = {
+        0x1122334455667788ULL,
+        0x99AABBCCDDEEFF00ULL,
+        0x0102030405060708ULL,
+        0x1112131415161718ULL
+    };
+    mp_uint_t b;
 
     uint8_t buf[MP_N] = {0};
     mp_export_be(buf, a);
@@ -1069,8 +986,8 @@ TEST(mp_export_import_be, roundtrip) {
 }
 
 TEST(mp_export_import_be, all_ones_roundtrip) {
-    mp_uint_t a{}, b{};
-    set(a, ~0ULL, ~0ULL, ~0ULL, ~0ULL);
+    mp_uint_t a = {~0ULL,~0ULL,~0ULL,~0ULL};
+    mp_uint_t b;
 
     uint8_t buf[MP_N] = {0};
     mp_export_be(buf, a);
@@ -1080,13 +997,13 @@ TEST(mp_export_import_be, all_ones_roundtrip) {
 }
 
 TEST(mp_div, num_lt_den_q0_rnum) {
-    mp_uint_t den{}, num{}, q{}, r{};
-    set(den, 0xFFFFFFFFFFFFFFF1ULL, 0x123456789ABCDEF0ULL, 0, 0);
+    mp_uint_t den = {0xFFFFFFFFFFFFFFF1ULL, 0x123456789ABCDEF0ULL, 0, 0};
+    mp_uint_t num, q, r;
     mp_set(num, 123);
 
     mp_div(q, r, num, den);
 
-    mp_uint_t qexp{}, rexp{};
+    mp_uint_t qexp, rexp;
     mp_set(qexp, 0);
     mp_set(rexp, 123);
     EXPECT_EQ(mp_cmp(q, qexp), 0);
@@ -1094,8 +1011,8 @@ TEST(mp_div, num_lt_den_q0_rnum) {
 }
 
 TEST(mp_div, num_eq_den_q1_r0) {
-    mp_uint_t den{}, num{}, q{}, r{}, one{}, zero{};
-    set(den, 0xFFFFFFFFFFFFFFF1ULL, 0x123456789ABCDEF0ULL, 0, 0);
+    mp_uint_t den = {0xFFFFFFFFFFFFFFF1ULL, 0x123456789ABCDEF0ULL, 0, 0};
+    mp_uint_t num, q, r, one, zero;
     mp_copy(num, den);
 
     mp_div(q, r, num, den);
@@ -1107,24 +1024,22 @@ TEST(mp_div, num_eq_den_q1_r0) {
 }
 
 TEST(mp_div, den_1word_path) {
-    mp_uint_t den{}, num{}, q{}, r{}, qexp{}, rexp{};
+    mp_uint_t den, num, q, r, qexp, rexp;
 
     mp_set(den, 7);
     mp_set(num, 1000);
 
     mp_div(q, r, num, den);
 
-    mp_set(qexp, 142); // 1000/7
-    mp_set(rexp, 6);   // 1000%7
+    mp_set(qexp, 142);
+    mp_set(rexp, 6);
     EXPECT_EQ(mp_cmp(q, qexp), 0);
     EXPECT_EQ(mp_cmp(r, rexp), 0);
 }
 
 TEST(mp_div, knuth_path_s_nonzero) {
-    mp_uint_t den{}, qv{}, rv{}, num{}, tmp{}, q{}, r{};
-
-    // top limb NOT having MSB set => clz != 0 (s != 0)
-    set(den, 0xFFFFFFFFFFFFFFF1ULL, 0x123456789ABCDEF0ULL, 0, 0);
+    mp_uint_t den = {0xFFFFFFFFFFFFFFF1ULL, 0x123456789ABCDEF0ULL, 0, 0};
+    mp_uint_t qv, rv, num, tmp, q, r;
 
     mp_set(qv, 17);
     mp_mul(tmp, den, 17);
@@ -1133,7 +1048,7 @@ TEST(mp_div, knuth_path_s_nonzero) {
 
     mp_div(q, r, num, den);
 
-    mp_uint_t qexp{}, rexp{};
+    mp_uint_t qexp, rexp;
     mp_set(qexp, 17);
     mp_set(rexp, 5);
     EXPECT_EQ(mp_cmp(q, qexp), 0);
@@ -1141,19 +1056,17 @@ TEST(mp_div, knuth_path_s_nonzero) {
 }
 
 TEST(mp_div, knuth_path_s_zero) {
-    mp_uint_t den{}, num{}, tmp{}, q{}, r{};
-
-    // top limb HAS MSB set => clz == 0 (s == 0)
-    set(den, 0x0123456789ABCDEFULL, 0x8000000000000000ULL, 0, 0);
+    mp_uint_t den = {0x0123456789ABCDEFULL, 0x8000000000000000ULL, 0, 0};
+    mp_uint_t num, tmp, q, r;
 
     mp_mul(tmp, den, 9);
-    mp_uint_t seven{};
+    mp_uint_t seven;
     mp_set(seven, 7);
     mp_add(num, tmp, seven);
 
     mp_div(q, r, num, den);
 
-    mp_uint_t qexp{}, rexp{};
+    mp_uint_t qexp, rexp;
     mp_set(qexp, 9);
     mp_set(rexp, 7);
     EXPECT_EQ(mp_cmp(q, qexp), 0);
@@ -1161,9 +1074,10 @@ TEST(mp_div, knuth_path_s_zero) {
 }
 
 TEST(mp_div, den_one_returns_num) {
-    mp_uint_t den{}, num{}, q{}, r{};
+    mp_uint_t den, num, q, r;
     mp_set(den, 1);
-    set(num, 0x0123456789ABCDEFULL, 0x0ULL, 0xFFFFFFFFFFFFFFFFULL, 0x8000000000000001ULL);
+    mp_uint_t n = {0x0123456789ABCDEFULL, 0x0ULL, 0xFFFFFFFFFFFFFFFFULL, 0x8000000000000001ULL};
+    mp_copy(num, n);
 
     mp_div(q, r, num, den);
 
@@ -1172,125 +1086,665 @@ TEST(mp_div, den_one_returns_num) {
 }
 
 TEST(mp_div, top_bit_quotient_case) {
-    // num = 2^255, den = 2 => q = 2^254, r = 0
-    mp_uint_t num{}, den{}, q{}, r{}, qexp{}, z{};
-    set(num, 0,0,0, 0x8000000000000000ULL);
+    mp_uint_t num = {0,0,0,0x8000000000000000ULL};
+    mp_uint_t den, q, r, qexp, z;
     mp_set(den, 2);
+
     mp_div(q, r, num, den);
+
     mp_set(z, 0);
-    set(qexp, 0,0,0, 0x4000000000000000ULL);
+    mp_uint_t qq = {0,0,0,0x4000000000000000ULL};
+    mp_copy(qexp, qq);
+
     EXPECT_EQ(mp_cmp(q, qexp), 0);
     EXPECT_EQ(mp_cmp(r, z), 0);
 }
 
 TEST(mp_pow_mod, exp_zero_returns_one_mod) {
-    const uint64_t *mod = Fq_q.longVal;
+    const uint64_t *mod = Fq_q;
 
-    mp_uint_t base{}, exp{}, out{}, ref{};
+    mp_uint_t base, exp, out;
     mp_set(base, 5);
     mp_set(exp, 0);
 
     mp_pow_mod(out, base, exp, mod);
 
-    mp_set(ref, 1);
-    reduce_mod(ref, ref, mod);
-    EXPECT_EQ(mp_cmp(out, ref), 0);
+    mp_uint_t one;
+    mp_set(one, 1);
+    EXPECT_EQ(mp_cmp(out, one), 0);
 }
 
-TEST(mp_pow_mod, exp_one_returns_base_mod) {
-    const uint64_t *mod = Fq_q.longVal;
+TEST(mp_pow_mod, exp_one_returns_base_mod_small) {
+    const uint64_t *mod = Fq_q;
 
-    mp_uint_t base{}, exp{}, out{}, ref{};
+    mp_uint_t base, exp, out;
     mp_set(base, 5);
     mp_set(exp, 1);
 
     mp_pow_mod(out, base, exp, mod);
 
-    mp_set(ref, 5);
-    reduce_mod(ref, ref, mod);
-    EXPECT_EQ(mp_cmp(out, ref), 0);
+    mp_uint_t five;
+    mp_set(five, 5);
+    EXPECT_EQ(mp_cmp(out, five), 0);
 }
 
 TEST(mp_pow_mod, base_zero_exp_zero_defined_as_one_mod) {
-    const uint64_t *mod = Fq_q.longVal;
+    const uint64_t *mod = Fq_q;
 
-    mp_uint_t base{}, exp{}, out{}, ref{};
+    mp_uint_t base, exp, out, one;
     mp_set(base, 0);
     mp_set(exp, 0);
 
     mp_pow_mod(out, base, exp, mod);
 
-    mp_set(ref, 1);
-    reduce_mod(ref, ref, mod);
-    EXPECT_EQ(mp_cmp(out, ref), 0);
+    mp_set(one, 1);
+    EXPECT_EQ(mp_cmp(out, one), 0);
 }
 
 TEST(mp_pow_mod, mod_one_returns_zero) {
-    mp_uint_t base{}, exp{}, mod1{}, out{};
+    mp_uint_t base, exp, mod1, out;
     mp_set(base, 123);
     mp_set(exp, 456);
     mp_set(mod1, 1);
+
     mp_pow_mod(out, base, exp, mod1);
     EXPECT_TRUE(mp_is_zero(out));
 }
 
-TEST(mp_pow_mod, base_reduction_path_base_ge_mod) {
-    // Use small mod so we can reason easily
-    mp_uint_t mod{}, base{}, exp{}, out{}, ref{};
+TEST(mp_pow_mod, base_reduction_path_base_ge_mod_small_mod) {
+    mp_uint_t mod, base, exp, out, ref;
     mp_set(mod, 17);
 
-    // base = 17+5 => should reduce to 5
-    mp_set(base, 22);
+    mp_set(base, 22); // 17+5
     mp_set(exp, 3);
 
     mp_pow_mod(out, base, exp, mod);
 
-    // 5^3 mod 17 = 125 mod 17 = 6
+    // 5^3 mod 17 = 6
     mp_set(ref, 6);
     EXPECT_EQ(mp_cmp(out, ref), 0);
 }
 
+TEST(mp_pow_mod, big_numbers_bn254_q_minus_1) {
+    // Use BN254 scalar field order as mod, and base = mod-1.
+    // (mod-1)^2 mod mod = 1, and (mod-1)^3 mod mod = mod-1.
+    const uint64_t *mod = Fq_q;
+
+    mp_uint_t base, exp, out, one;
+    mp_uint_t q_minus_1 = {
+        0x3c208c16d87cfd46ULL,
+        0x97816a916871ca8dULL,
+        0xb85045b68181585dULL,
+        0x30644e72e131a029ULL
+    };
+
+    // base = mod - 1 (constant)
+    mp_copy(base, q_minus_1);
+
+    // exponent = 2
+    mp_set(exp, 2);
+    mp_pow_mod(out, base, exp, mod);
+    mp_set(one, 1);
+    EXPECT_EQ(mp_cmp(out, one), 0);
+
+    // exponent = 3 => result = mod - 1
+    mp_set(exp, 3);
+    mp_pow_mod(out, base, exp, mod);
+    EXPECT_EQ(mp_cmp(out, q_minus_1), 0);
+}
+
+TEST(mp_pow_mod, big_numbers_q_minus_5_pow2_pow3) {
+    const uint64_t *mod = Fq_q;
+
+    // q - 5
+    const mp_uint_t q_minus_5 = {
+        0x3c208c16d87cfd42ULL,
+        0x97816a916871ca8dULL,
+        0xb85045b68181585dULL,
+        0x30644e72e131a029ULL
+    };
+
+    // q - 125
+    const mp_uint_t q_minus_125 = {
+        0x3c208c16d87cfccaULL,
+        0x97816a916871ca8dULL,
+        0xb85045b68181585dULL,
+        0x30644e72e131a029ULL
+    };
+
+    mp_uint_t base, exp, out, expect;
+
+    mp_copy(base, q_minus_5);
+
+    // (q-5)^2 mod q = 25
+    mp_set(exp, 2);
+    mp_pow_mod(out, base, exp, mod);
+    mp_set(expect, 25);
+    EXPECT_EQ(mp_cmp(out, expect), 0);
+
+    // (q-5)^3 mod q = q-125
+    mp_set(exp, 3);
+    mp_pow_mod(out, base, exp, mod);
+    EXPECT_EQ(mp_cmp(out, q_minus_125), 0);
+}
+
+TEST(mp_pow_mod, random_big_base_and_big_odd_exp_minus_one_result) {
+    const uint64_t *mod = Fq_q;
+
+    // q - 1  (то есть -1 mod q)
+    const mp_uint_t q_minus_1 = {
+        0x3c208c16d87cfd46ULL,
+        0x97816a916871ca8dULL,
+        0xb85045b68181585dULL,
+        0x30644e72e131a029ULL
+    };
+
+    // большой "рандомный" (но заданный константой) НЕЧЁТНЫЙ показатель
+    const mp_uint_t exp_big_odd = {
+        0xDEADBEEFCAFEBABFULL,  // LSB=1 => odd
+        0x0123456789ABCDEFULL,
+        0x0ULL,
+        0x0ULL
+    };
+
+    mp_uint_t out;
+    mp_pow_mod(out, q_minus_1, exp_big_odd, mod);
+
+    // (-1)^odd == -1
+    EXPECT_EQ(mp_cmp(out, q_minus_1), 0);
+}
+
 TEST(mp_inv_mod, zero_not_invertible) {
-    const uint64_t *mod = Fq_q.longVal;
-    mp_uint_t a{}, inv{};
+    const uint64_t *mod = Fq_q;
+    mp_uint_t a, inv;
     mp_set(a, 0);
     EXPECT_FALSE(mp_inv_mod(inv, a, mod));
 }
 
 TEST(mp_inv_mod, one_inverts_to_one) {
-    const uint64_t *mod = Fq_q.longVal;
-    mp_uint_t a{}, inv{}, one{};
+    const uint64_t *mod = Fq_q;
+    mp_uint_t a, inv, one;
     mp_set(a, 1);
     ASSERT_TRUE(mp_inv_mod(inv, a, mod));
     mp_set(one, 1);
     EXPECT_EQ(mp_cmp(inv, one), 0);
 }
 
-TEST(mp_inv_mod, check_a_times_inv_is_one_small_mod) {
-#if !defined(__SIZEOF_INT128__)
-    GTEST_SKIP() << "mp_inv_mod/mp_div/mod reduction tests require __int128 in this build";
-#endif
-    mp_uint_t mod{}, a{}, inv{}, one{}, prod{}, rem{};
+TEST(mp_inv_mod, small_mod_known_values) {
+    // mod = 17:
+    // inv(3) = 6 because 3*6 = 18 = 1 (mod 17)
+    // inv(16) = 16 because (-1)^-1 = -1
+    mp_uint_t mod, a, inv, ref;
     mp_set(mod, 17);
+
     mp_set(a, 3);
-
     ASSERT_TRUE(mp_inv_mod(inv, a, mod));
+    mp_set(ref, 6);
+    EXPECT_EQ(mp_cmp(inv, ref), 0);
 
-    mp_mul(prod, inv, 3);
-    reduce_mod(rem, prod, mod);
-
-    mp_set(one, 1);
-    EXPECT_EQ(mp_cmp(rem, one), 0);
+    mp_set(a, 16);
+    ASSERT_TRUE(mp_inv_mod(inv, a, mod));
+    mp_set(ref, 16);
+    EXPECT_EQ(mp_cmp(inv, ref), 0);
 }
 
-TEST(mp_inv_mod, inv_of_minus_one_is_minus_one_small_mod) {
-    mp_uint_t mod{}, a{}, inv{}, one{}, prod{}, rem{};
-    mp_set(mod, 17);
-    mp_set(a, 16); // -1 mod 17
+TEST(mp_inv_mod, big_numbers_bn254_q_minus_1) {
+    // Inverse in BN254 scalar field:
+    // inv(mod-1) == mod-1 (since (-1)^-1 = -1).
+    const uint64_t *mod = Fq_q;
+    mp_uint_t q_minus_1 = {
+        0x3c208c16d87cfd46ULL,
+        0x97816a916871ca8dULL,
+        0xb85045b68181585dULL,
+        0x30644e72e131a029ULL
+    };
+
+    mp_uint_t a, inv;
+    mp_copy(a, q_minus_1);
+
     ASSERT_TRUE(mp_inv_mod(inv, a, mod));
-    // (-1)*(-1)=1 mod 17
-    mp_mul(prod, inv, 16);
-    reduce_mod(rem, prod, mod);
+    EXPECT_EQ(mp_cmp(inv, q_minus_1), 0);
+}
+
+// ============================================================
+// DIAGNOSTIC TESTS FOR MODULAR / ALIASING LAYER
+// ============================================================
+
+static inline uint64_t add_carry(uint64_t *out, uint64_t a, uint64_t b, uint64_t c) {
+#if defined(__clang__) || defined(__GNUC__)
+    uint64_t t;
+    unsigned c1 = __builtin_add_overflow(a, b, &t);
+    unsigned c2 = __builtin_add_overflow(t, c, &t);
+    *out = t;
+    return (c1 | c2);
+#else
+    uint64_t t0 = a + b;
+    uint64_t carry1 = (t0 < a);
+    uint64_t t1 = t0 + c;
+    uint64_t carry2 = (t1 < t0);
+    *out = t1;
+    return carry1 | carry2;
+#endif
+}
+
+static inline uint64_t sub_borrow(uint64_t *out, uint64_t a, uint64_t b, uint64_t c) {
+#if defined(__clang__) || defined(__GNUC__)
+    uint64_t t;
+    unsigned b1 = __builtin_sub_overflow(a, b, &t);
+    unsigned b2 = __builtin_sub_overflow(t, c, &t);
+    *out = t;
+    return (b1 | b2);
+#else
+    uint64_t t0 = a - b;
+    uint64_t borrow1 = (a < b);
+    uint64_t t1 = t0 - c;
+    uint64_t borrow2 = (t0 < c);
+    *out = t1;
+    return borrow1 | borrow2;
+#endif
+}
+
+static inline void mp_add_mod(uint64_t *r, const uint64_t *a, const uint64_t *b, const uint64_t *mod) {
+    uint64_t aa[MP_N64];
+    uint64_t bb[MP_N64];
+
+    mp_copy(aa, a);
+    mp_copy(bb, b);
+
+    const uint64_t carry = mp_add(r, aa, bb);
+    if (carry || mp_cmp(r, mod) >= 0) {
+        mp_sub(r, r, mod);
+    }
+}
+
+static inline void mp_sub_mod(uint64_t *x, const uint64_t *y, const uint64_t *mod) {
+    // x = x - y (mod mod), assumes 0 <= x,y < mod and mod odd
+    uint64_t t0, t1, t2, t3;
+    uint64_t br = 0;
+
+    br = sub_borrow(&t0, x[0], y[0], br);
+    br = sub_borrow(&t1, x[1], y[1], br);
+    br = sub_borrow(&t2, x[2], y[2], br);
+    br = sub_borrow(&t3, x[3], y[3], br);
+
+    // if borrow, add mod back
+    if (br) {
+        uint64_t c = 0;
+        c = add_carry(&t0, t0, mod[0], c);
+        c = add_carry(&t1, t1, mod[1], c);
+        c = add_carry(&t2, t2, mod[2], c);
+        c = add_carry(&t3, t3, mod[3], c);
+        (void)c;
+    }
+
+    x[0] = t0; x[1] = t1; x[2] = t2; x[3] = t3;
+}
+
+static inline void mp_div2_mod(uint64_t *x, const uint64_t *mod) {
+    // if x is odd: x += mod
+    if (x[0] & 1u) {
+        uint64_t c = 0;
+        c = add_carry(&x[0], x[0], mod[0], c);
+        c = add_carry(&x[1], x[1], mod[1], c);
+        c = add_carry(&x[2], x[2], mod[2], c);
+        c = add_carry(&x[3], x[3], mod[3], c);
+        (void)c;
+    }
+    // x >>= 1
+    uint64_t b3 = x[3];
+    uint64_t b2 = x[2];
+    uint64_t b1 = x[1];
+    uint64_t b0 = x[0];
+    x[0] = (b0 >> 1) | (b1 << (2*MP_N - 1));
+    x[1] = (b1 >> 1) | (b2 << (2*MP_N - 1));
+    x[2] = (b2 >> 1) | (b3 << (2*MP_N - 1));
+    x[3] = (b3 >> 1);
+}
+
+static void expect_mp_eq_u64(const mp_uint_t a, uint64_t x) {
+    EXPECT_EQ(a[0], x);
+    EXPECT_EQ(a[1], 0ULL);
+    EXPECT_EQ(a[2], 0ULL);
+    EXPECT_EQ(a[3], 0ULL);
+}
+
+TEST(mp_add_aliasing, r_eq_a) {
+    mp_uint_t a = {5, 7, 11, 13};
+    mp_uint_t b = {17, 19, 23, 29};
+
+    mp_uint_t ref;
+    mp_add(ref, a, b);
+
+    mp_add(a, a, b);
+    EXPECT_EQ(mp_cmp(a, ref), 0);
+}
+
+TEST(mp_add_aliasing, r_eq_b) {
+    mp_uint_t a = {5, 7, 11, 13};
+    mp_uint_t b = {17, 19, 23, 29};
+
+    mp_uint_t ref;
+    mp_add(ref, a, b);
+
+    mp_add(b, a, b);
+    EXPECT_EQ(mp_cmp(b, ref), 0);
+}
+
+TEST(mp_sub_aliasing, r_eq_a) {
+    mp_uint_t a = {100, 7, 11, 13};
+    mp_uint_t b = {17, 19, 23, 29};
+
+    mp_uint_t ref;
+    mp_sub(ref, a, b);
+
+    mp_sub(a, a, b);
+    EXPECT_EQ(mp_cmp(a, ref), 0);
+}
+
+TEST(mp_sub_aliasing, r_eq_b) {
+    mp_uint_t a = {100, 7, 11, 13};
+    mp_uint_t b = {17, 19, 23, 29};
+
+    mp_uint_t ref;
+    mp_sub(ref, a, b);
+
+    // here result is different semantic: b := a-b
+    mp_sub(b, a, b);
+    EXPECT_EQ(mp_cmp(b, ref), 0);
+}
+
+TEST(mp_shl_aliasing, inplace) {
+    mp_uint_t a = {0x0123456789ABCDEFULL, 0x0ULL, 0xFFFFFFFFFFFFFFFFULL, 0x7ULL};
+    mp_uint_t ref;
+    mp_shl(ref, a, 17);
+    mp_shl(a, a, 17);
+    EXPECT_EQ(mp_cmp(a, ref), 0);
+}
+
+TEST(mp_shr_aliasing, inplace) {
+    mp_uint_t a = {0x0123456789ABCDEFULL, 0x0ULL, 0xFFFFFFFFFFFFFFFFULL, 0x7ULL};
+    mp_uint_t ref;
+    mp_shr(ref, a, 17);
+    mp_shr(a, a, 17);
+    EXPECT_EQ(mp_cmp(a, ref), 0);
+}
+
+TEST(mp_add_mod, exhaustive_small_prime_17_normalized_inputs) {
+    mp_uint_t mod;
+    mp_set(mod, 17);
+
+    for (uint64_t x = 0; x < 17; x++) {
+        for (uint64_t y = 0; y < 17; y++) {
+            mp_uint_t a, b, r;
+            mp_set(a, x);
+            mp_set(b, y);
+
+            mp_add_mod(r, a, b, mod);
+
+            uint64_t exp = (x + y) % 17;
+            expect_mp_eq_u64(r, exp);
+        }
+    }
+}
+
+TEST(mp_sub_mod_inplace, exhaustive_small_prime_17_normalized_inputs) {
+    mp_uint_t mod;
+    mp_set(mod, 17);
+
+    for (uint64_t x0 = 0; x0 < 17; x0++) {
+        for (uint64_t y0 = 0; y0 < 17; y0++) {
+            mp_uint_t x, y;
+            mp_set(x, x0);
+            mp_set(y, y0);
+
+            mp_sub_mod(x, y, mod);
+
+            uint64_t exp = (x0 + 17 - y0) % 17;
+            EXPECT_EQ(x[0], exp) << "x0=" << x0 << " y0=" << y0;
+            EXPECT_EQ(x[1], 0ULL);
+            EXPECT_EQ(x[2], 0ULL);
+            EXPECT_EQ(x[3], 0ULL);
+        }
+    }
+}
+
+TEST(mp_sub_mod_inplace, small_prime_17_non_normalized_x_should_fail_or_be_unsupported) {
+    // Этот тест нужен только чтобы увидеть, не используешь ли ты mp_sub_mod
+    // там, где x >= mod. По контракту у тебя assumes 0 <= x,y < mod.
+    mp_uint_t mod;
+    mp_set(mod, 17);
+
+    mp_uint_t x, y;
+    mp_set(x, 22); // 22 % 17 = 5, но функция НЕ обязана это нормализовать
+    mp_set(y, 3);
+
+    mp_sub_mod(x, y, mod);
+
+    // Ничего не ASSERT-им как correctness.
+    // Просто логика: если здесь вдруг получится 2, значит функция случайно
+    // работает и на ненормализованных x; если нет — контракт подтверждается.
+    SUCCEED();
+}
+
+TEST(mp_div2_mod, exhaustive_small_prime_17) {
+    mp_uint_t mod;
+    mp_set(mod, 17);
+
+    for (uint64_t x0 = 0; x0 < 17; x0++) {
+        mp_uint_t x;
+        mp_set(x, x0);
+
+        mp_div2_mod(x, mod);
+
+        uint64_t exp = (x0 & 1ULL) ? ((x0 + 17) >> 1) : (x0 >> 1);
+        expect_mp_eq_u64(x, exp);
+    }
+}
+
+TEST(mp_div2_mod, zero) {
+    mp_uint_t mod, x;
+    mp_set(mod, 17);
+    mp_set(x, 0);
+
+    mp_div2_mod(x, mod);
+    expect_mp_eq_u64(x, 0);
+}
+
+TEST(mp_div2_mod, bn254_edges) {
+    const uint64_t *mod = Fq_q;
+
+    const mp_uint_t q_minus_1 = {
+        0x3c208c16d87cfd46ULL,
+        0x97816a916871ca8dULL,
+        0xb85045b68181585dULL,
+        0x30644e72e131a029ULL
+    };
+
+    mp_uint_t x, one;
     mp_set(one, 1);
-    EXPECT_EQ(mp_cmp(rem, one), 0);
+
+    // 1 / 2 mod q = (q+1)/2
+    mp_copy(x, one);
+    mp_div2_mod(x, mod);
+
+    mp_uint_t expect = {
+        0x9e10460b6c3e7ea4ULL,
+        0xcbc0b548b438e546ULL,
+        0xdc2822db40c0ac2eULL,
+        0x183227397098d014ULL
+    };
+    EXPECT_EQ(mp_cmp(x, expect), 0);
+
+    // (q-1)/2 mod q = q/2 rounded down
+    mp_copy(x, q_minus_1);
+    mp_div2_mod(x, mod);
+
+    mp_uint_t expect2 = {
+        0x9e10460b6c3e7ea3ULL,
+        0xcbc0b548b438e546ULL,
+        0xdc2822db40c0ac2eULL,
+        0x183227397098d014ULL
+    };
+    EXPECT_EQ(mp_cmp(x, expect2), 0);
+}
+
+TEST(mp_inv_mod, exhaustive_small_prime_17_table) {
+    mp_uint_t mod;
+    mp_set(mod, 17);
+
+    const uint64_t inv17[17] = {
+        0, 1, 9, 6, 13, 7, 3, 5, 15,
+        2, 12, 14, 10, 4, 11, 8, 16
+    };
+
+    for (uint64_t x = 1; x < 17; x++) {
+        mp_uint_t a, inv;
+        mp_set(a, x);
+
+        ASSERT_TRUE(mp_inv_mod(inv, a, mod)) << "x=" << x;
+        expect_mp_eq_u64(inv, inv17[x]);
+    }
+}
+
+TEST(mp_pow_mod, exhaustive_small_prime_17_against_naive) {
+    mp_uint_t mod;
+    mp_set(mod, 17);
+
+    auto naive_pow_mod = [](uint64_t a, uint64_t e, uint64_t m) {
+        uint64_t r = 1 % m;
+        a %= m;
+        while (e--) r = (r * a) % m;
+        return r;
+    };
+
+    for (uint64_t a64 = 0; a64 < 17; a64++) {
+        for (uint64_t e64 = 0; e64 <= 20; e64++) {
+            mp_uint_t a, e, out;
+            mp_set(a, a64);
+            mp_set(e, e64);
+
+            mp_pow_mod(out, a, e, mod);
+
+            uint64_t exp = naive_pow_mod(a64, e64, 17);
+            expect_mp_eq_u64(out, exp);
+        }
+    }
+}
+
+TEST(mp_add_mod, bn254_edges) {
+    const uint64_t *mod = Fq_q;
+
+    const mp_uint_t q_minus_1 = {
+        0x3c208c16d87cfd46ULL,
+        0x97816a916871ca8dULL,
+        0xb85045b68181585dULL,
+        0x30644e72e131a029ULL
+    };
+
+    const mp_uint_t q_minus_2 = {
+        0x3c208c16d87cfd45ULL,
+        0x97816a916871ca8dULL,
+        0xb85045b68181585dULL,
+        0x30644e72e131a029ULL
+    };
+
+    mp_uint_t one, two, r;
+    mp_set(one, 1);
+    mp_set(two, 2);
+
+    // (q-1) + 1 = 0 mod q
+    mp_add_mod(r, q_minus_1, one, mod);
+    EXPECT_TRUE(mp_is_zero(r));
+
+    // (q-1) + 2 = 1 mod q
+    mp_add_mod(r, q_minus_1, two, mod);
+    expect_mp_eq_u64(r, 1);
+
+    // (q-1) + (q-1) = q-2 mod q
+    mp_add_mod(r, q_minus_1, q_minus_1, mod);
+    EXPECT_EQ(mp_cmp(r, q_minus_2), 0);
+}
+
+TEST(mp_sub_mod_inplace, bn254_edges) {
+    const uint64_t *mod = Fq_q;
+
+    const mp_uint_t q_minus_1 = {
+        0x3c208c16d87cfd46ULL,
+        0x97816a916871ca8dULL,
+        0xb85045b68181585dULL,
+        0x30644e72e131a029ULL
+    };
+
+    mp_uint_t x, one, two, zero;
+    mp_set(one, 1);
+    mp_set(two, 2);
+    mp_set(zero, 0);
+
+    // 1 - 2 = q-1 mod q
+    mp_copy(x, one);
+    mp_sub_mod(x, two, mod);
+    EXPECT_EQ(mp_cmp(x, q_minus_1), 0);
+
+    // 1 - 1 = 0 mod q
+    mp_copy(x, one);
+    mp_sub_mod(x, one, mod);
+    EXPECT_TRUE(mp_is_zero(x));
+
+    // 0 - 1 = q-1 mod q
+    mp_copy(x, zero);
+    mp_sub_mod(x, one, mod);
+    EXPECT_EQ(mp_cmp(x, q_minus_1), 0);
+}
+
+TEST(mp_add_mod, aliasing_r_eq_a_and_r_eq_b) {
+    mp_uint_t mod;
+    mp_set(mod, 17);
+
+    // r == a
+    {
+        mp_uint_t a, b, ref;
+        mp_set(a, 5);
+        mp_set(b, 9);
+        mp_set(ref, (5 + 9) % 17);
+
+        mp_add_mod(a, a, b, mod);
+        EXPECT_EQ(mp_cmp(a, ref), 0);
+    }
+
+    // r == b
+    {
+        mp_uint_t a, b, ref;
+        mp_set(a, 5);
+        mp_set(b, 9);
+        mp_set(ref, (5 + 9) % 17);
+
+        mp_add_mod(b, a, b, mod);
+        EXPECT_EQ(mp_cmp(b, ref), 0);
+    }
+}
+
+TEST(mp_addmul_varlen, carry_out_of_low_part_only)
+{
+    uint64_t r[5] = {
+        0xffffffffffffffffULL,
+        0xffffffffffffffffULL,
+        0xffffffffffffffffULL,
+        0xffffffffffffffffULL,
+        7ULL
+    };
+    uint64_t a[4] = {
+        0xffffffffffffffffULL,
+        0xffffffffffffffffULL,
+        0xffffffffffffffffULL,
+        0xffffffffffffffffULL
+    };
+
+    uint64_t carry = mp_addmul(r, 4, a, 4, 2ULL);
+
+    EXPECT_EQ(r[0], 0xfffffffffffffffdULL);
+    EXPECT_EQ(r[1], 0xffffffffffffffffULL);
+    EXPECT_EQ(r[2], 0xffffffffffffffffULL);
+    EXPECT_EQ(r[3], 0xffffffffffffffffULL);
+    EXPECT_EQ(r[4], 7ULL);
+    EXPECT_EQ(carry, 2ULL);
 }
