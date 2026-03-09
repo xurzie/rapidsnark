@@ -28,6 +28,7 @@
         global Fq_toInt
         global Fq_isTrue
         global Fq_q
+        global Fq_R2
         global Fq_R3
 
         global Fq_rawCopy
@@ -46,6 +47,7 @@
         global Fq_rawShr
         global Fq_rawShl
         global Fq_rawq
+        global Fq_rawR2
         global Fq_rawR3
 
         extern Fq_fail
@@ -8788,6 +8790,10 @@ Fq_q:
 Fq_rawq:
 q       dq      0x3c208c16d87cfd47,0x97816a916871ca8d,0xb85045b68181585d,0x30644e72e131a029
 half    dq      0x9e10460b6c3e7ea3,0xcbc0b548b438e546,0xdc2822db40c0ac2e,0x183227397098d014
+Fq_R2:
+        dd      0
+        dd      0x80000000
+Fq_rawR2:
 R2      dq      0xf32cfc5b538afa89,0xb5e71911d44501fb,0x47ab1eff0a417ff6,0x06d89f71cab8351f
 Fq_R3:
         dd      0

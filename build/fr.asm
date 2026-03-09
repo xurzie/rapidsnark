@@ -28,6 +28,7 @@
         global Fr_toInt
         global Fr_isTrue
         global Fr_q
+        global Fr_R2
         global Fr_R3
 
         global Fr_rawCopy
@@ -46,6 +47,7 @@
         global Fr_rawShr
         global Fr_rawShl
         global Fr_rawq
+        global Fr_rawR2
         global Fr_rawR3
 
         extern Fr_fail
@@ -8792,6 +8794,10 @@ Fr_q:
 Fr_rawq:
 q       dq      0x43e1f593f0000001,0x2833e84879b97091,0xb85045b68181585d,0x30644e72e131a029
 half    dq      0xa1f0fac9f8000000,0x9419f4243cdcb848,0xdc2822db40c0ac2e,0x183227397098d014
+Fr_R2:
+        dd      0
+        dd      0x80000000
+Fr_rawR2:
 R2      dq      0x1bb8e645ae216da7,0x53fe3ab1e35c59e3,0x8c49833d53bb8085,0x0216d0b17f4e44a5
 Fr_R3:
         dd      0

@@ -5,13 +5,6 @@
 #include <stdexcept>
 #include <climits>
 
-static const uint64_t FQ_Q_MINUS_2[4] = {
-    0x3c208c16d87cfd45ULL,
-    0x97816a916871ca8dULL,
-    0xb85045b68181585dULL,
-    0x30644e72e131a029ULL
-};
-
 void Fq_toMP(mp_uint_t out, PFqElement pE) {
     FqElement tmp;
     Fq_toNormal(&tmp, pE);
