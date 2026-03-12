@@ -14,6 +14,7 @@ void     mp_set(uint64_t *r, uint64_t a);
 void     mp_copy(uint64_t *r, const uint64_t *a);
 
 int      mp_cmp(const uint64_t *a, const uint64_t *b);
+void     mp_zero(uint64_t *r);
 bool     mp_is_zero(const uint64_t *a);
 
 uint64_t mp_add(uint64_t *r, const uint64_t *a, const uint64_t *b);

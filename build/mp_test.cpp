@@ -1344,14 +1344,13 @@ static inline uint64_t sub_borrow(uint64_t *out, uint64_t a, uint64_t b, uint64_
 #endif
 }
 
-static inline void mp_add_mod(uint64_t *r, const uint64_t *a, const uint64_t *b, const uint64_t *mod) {
-    uint64_t aa[MP_N64];
-    uint64_t bb[MP_N64];
+static inline void mp_add_mod(uint64_t *r,
+                              const uint64_t *a,
+                              const uint64_t *b,
+                              const uint64_t *mod)
+{
+    uint64_t carry = mp_add(r, a, b);
 
-    mp_copy(aa, a);
-    mp_copy(bb, b);
-
-    const uint64_t carry = mp_add(r, aa, bb);
     if (carry || mp_cmp(r, mod) >= 0) {
         mp_sub(r, r, mod);
     }
@@ -1721,6 +1720,56 @@ TEST(mp_add_mod, aliasing_r_eq_a_and_r_eq_b) {
         mp_add_mod(b, a, b, mod);
         EXPECT_EQ(mp_cmp(b, ref), 0);
     }
+}
+
+uint64_t mp_addmul(uint64_t *r, size_t rn, const uint64_t *a, size_t an, uint64_t b) {
+#if defined(__SIZEOF_INT128__)
+    __uint128_t carry = 0;
+    size_t i = 0;
+
+    for (; i < an && i < rn; ++i) {
+        __uint128_t t = (__uint128_t)r[i] + (__uint128_t)a[i] * (__uint128_t)b + carry;
+        r[i] = (uint64_t)t;
+        carry = t >> 64;
+    }
+
+    for (; i < rn; ++i) {
+        __uint128_t t = (__uint128_t)r[i] + carry;
+        r[i] = (uint64_t)t;
+        carry = t >> 64;
+    }
+
+    return (uint64_t)carry;
+#else
+    uint64_t carry = 0;
+    size_t i = 0;
+
+    for (; i < an && i < rn; ++i) {
+        uint64_t lo, hi;
+        mp_mul64(a[i], b, lo, hi);
+
+        uint64_t t1 = r[i] + lo;
+        uint64_t c1 = (t1 < r[i]) ? 1ULL : 0ULL;
+
+        uint64_t t2 = t1 + carry;
+        uint64_t c2 = (t2 < t1) ? 1ULL : 0ULL;
+
+        r[i] = t2;
+
+        uint64_t new_carry = hi;
+        new_carry += c1;
+        new_carry += c2;
+        carry = new_carry;
+    }
+
+    for (; i < rn; ++i) {
+        uint64_t out = r[i] + carry;
+        carry = (out < r[i]) ? 1ULL : 0ULL;
+        r[i] = out;
+    }
+
+    return carry;
+#endif
 }
 
 TEST(mp_addmul_varlen, carry_out_of_low_part_only)

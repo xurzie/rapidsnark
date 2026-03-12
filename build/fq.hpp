@@ -193,7 +193,7 @@ void Fq_longErr();
 
 void Fq_toMP(mp_uint_t out, PFqElement a);
 void Fq_fromMP(PFqElement out, const mp_uint_t v);
-void Fq_str2element(PFqElement pE, char const*s, uint base);
+void Fq_str2element(PFqElement pE, char const* s, uint base);
 std::string Fq_element2str(PFqElement pE, uint32_t base = 10);
 void Fq_idiv(PFqElement r, PFqElement a, PFqElement b);
 void Fq_mod(PFqElement r, PFqElement a, PFqElement b);

@@ -66,15 +66,13 @@ void Fr_rawSubLS(FrRawElement pRawResult, FrRawElement pRawA, uint64_t rawB)
 
 void Fr_rawNeg(FrRawElement pRawResult, const FrRawElement pRawA)
 {
-    const uint64_t zero[Fr_N64] = {0, 0, 0, 0};
-
-    if (mp_cmp(pRawA, zero) != 0)
+    if (!mp_is_zero(pRawA))
     {
         mp_sub(pRawResult, Fr_rawq, pRawA);
     }
     else
     {
-        mp_copy(pRawResult, zero);
+        mp_set(pRawResult, 0);
     }
 }
 
