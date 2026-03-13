@@ -13,7 +13,7 @@ You should have installed gcc, cmake, libsodium
 In ubuntu:
 
 ```
-sudo apt-get install build-essential cmake libgmp-dev libsodium-dev nasm curl m4
+sudo apt-get install build-essential cmake libsodium-dev nasm curl m4
 ```
 
 On MacOS:
