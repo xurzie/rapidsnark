@@ -8,7 +8,7 @@ Rapidsnark is a zkSnark proof generation written in C++ and intel/arm assembly. 
 
 ## Dependencies
 
-You should have installed gcc, cmake, libsodium, and gmp (development)
+You should have installed gcc, cmake, libsodium
 
 In ubuntu:
 
@@ -19,7 +19,7 @@ sudo apt-get install build-essential cmake libgmp-dev libsodium-dev nasm curl m4
 On MacOS:
 
 ```
-brew install cmake gmp libsodium nasm
+brew install cmake libsodium nasm
 ```
 
 ## Compile prover in standalone mode
