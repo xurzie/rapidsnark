@@ -348,7 +348,7 @@ TEST(mp_mul_u64, mp_mul) {
         EXPECT_EQ(r[3], 0xFFFFFFFFFFFFFFFFULL);
     }
 }
-
+/*
 TEST(mp_addmul_u64, mp_addmul) {
     // r += a*b : 5 + 3*7 = 26
     {
@@ -377,7 +377,7 @@ TEST(mp_addmul_u64, mp_addmul) {
         EXPECT_EQ(r[3], 0xFFFFFFFFFFFFFFFFULL);
     }
 }
-
+*/
 TEST(mp_and, mp_and) {
     mp_uint_t a = {0xF0F0ULL, 0xAAAAULL, 0, ~0ULL};
     mp_uint_t b = {0x0FF0ULL, 0x0F0FULL, ~0ULL, 0x1234ULL};

@@ -25,7 +25,7 @@ uint64_t mp_add(uint64_t *r, const uint64_t *a, uint64_t b);
 uint64_t mp_sub(uint64_t *r, const uint64_t *a, uint64_t b);
 
 uint64_t mp_mul(uint64_t *r, const uint64_t *a, uint64_t b);
-uint64_t mp_addmul(uint64_t *r, const uint64_t *a, uint64_t b);
+uint64_t mp_addmul(uint64_t *r, const uint64_t *a, size_t n, uint64_t b);
 
 void     mp_and(uint64_t *r, const uint64_t *a, const uint64_t *b);
 void     mp_or(uint64_t *r, const uint64_t *a, const uint64_t *b);

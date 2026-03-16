@@ -1217,36 +1217,39 @@ uint64_t mp_mul(uint64_t *r, const uint64_t *a, uint64_t b) {
 #endif
 }
 
-uint64_t mp_addmul(uint64_t *r, const uint64_t *a, uint64_t b) {
+uint64_t mp_addmul(uint64_t *r, const uint64_t *a, size_t n, uint64_t b)
+{
 #if defined(__SIZEOF_INT128__)
     __uint128_t carry = 0;
-    for (int i = 0; i < MP_N64; i++) {
-        __uint128_t t = (__uint128_t)r[i] + (__uint128_t)a[i] * (__uint128_t)b + carry;
+
+    for (size_t i = 0; i < n; i++) {
+        __uint128_t t = (__uint128_t)r[i]
+                      + (__uint128_t)a[i] * (__uint128_t)b
+                      + carry;
         r[i] = (uint64_t)t;
         carry = t >> 2*MP_N;
     }
+
     return (uint64_t)carry;
 #else
     uint64_t carry = 0;
-    for (int i = 0; i < MP_N64; i++) {
+
+    for (size_t i = 0; i < n; i++) {
         uint64_t lo, hi;
         mp_mul64(a[i], b, lo, hi);
 
-        // r[i] + lo + carry
         uint64_t t = r[i] + lo;
         uint64_t c1 = (t < r[i]);
+
         uint64_t out = t + carry;
         uint64_t c2 = (out < t);
 
         r[i] = out;
-
-        // carry = hi + c1 + c2
-        uint64_t c = hi;
-        c += c1;
-        c += c2;
-        carry = c;
+        carry = hi + c1 + c2;
     }
+
     return carry;
+}
 #endif
 }
 
@@ -1383,3 +1386,29 @@ bool mp_inv_mod(uint64_t *r, const uint64_t *a, const uint64_t *mod) {
     else              mp_copy(r, x2);
     return true;
 }
+/*
+static inline uint64_t mp_binvert_limb(uint64_t d)
+{
+    uint64_t x;
+
+    x = modlimb_invert_table[(d >> 1) & 0x7F];
+
+    x = x * (2 - d*x);
+    x = x * (2 - d*x);
+    x = x * (2 - d*x);
+
+    return x;
+}
+
+static inline uint64_t div_preinv(uint64_t hi, uint64_t lo,
+                                  uint64_t d, uint64_t inv)
+{
+    __uint128_t n = ((__uint128_t)hi << 64) | lo;
+
+    uint64_t q = (uint64_t)(((__uint128_t)lo * inv) >> 64);
+
+    if ((__uint128_t)q * d > n)
+        q--;
+
+    return q;
+}*/
