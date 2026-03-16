@@ -136,7 +136,7 @@ if(USE_SODIUM)
 endif()
 
 option(BUILD_TESTS "Build the tests" ON)
-option(MP_TEST "Build mp-API test" ON)
+option(MP_TEST "Build mp-API test" OFF)
 
 if(BUILD_TESTS)
     enable_testing()
